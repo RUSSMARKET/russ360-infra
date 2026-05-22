@@ -1,0 +1,65 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    stack: russ360
+
+rule_files:
+  - /etc/prometheus/alerts/*.yml
+
+scrape_configs:
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          env: infra
+
+  - job_name: node_exporter
+    static_configs:
+      - targets: ['host.docker.internal:9100']
+        labels:
+          env: infra
+    # Локально: host.docker.internal не резолвится без extra_hosts.
+    # На prod node_exporter в network_mode: host, поэтому достаём через docker0 gateway.
+    # Если targets не отвечает, заменить на 172.17.0.1:9100 (docker0 bridge) или host.docker.internal с extra_hosts.
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['cadvisor:8080']
+        labels:
+          env: infra
+
+  # ---------- Placeholders for Track B (заполняются при инструментации сервисов) ----------
+  # Локально все сервисы доступны через docker через respective networks;
+  # на prod — через 127.0.0.1:80XX nginx-проксики (см. infra_map).
+  #
+  # - job_name: rusaicore
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ['host.docker.internal:9011']
+  #       labels: { service: rusaicore, env: prod }
+  #     - targets: ['host.docker.internal:8011']
+  #       labels: { service: rusaicore, env: dev }
+  #
+  # - job_name: rusaiauth
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ['host.docker.internal:8002']
+  #       labels: { service: rusaiauth, env: prod }
+  #     - targets: ['host.docker.internal:8012']
+  #       labels: { service: rusaiauth, env: dev }
+  #
+  # - job_name: rusaisklad
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ['host.docker.internal:9000']
+  #       labels: { service: rusaisklad, env: prod }
+  #     - targets: ['host.docker.internal:8000']
+  #       labels: { service: rusaisklad, env: dev }
+  #
+  # - job_name: rusaifin
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ['host.docker.internal:80']
+  #       labels: { service: rusaifin, env: prod }

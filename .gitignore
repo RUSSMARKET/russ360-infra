@@ -1,0 +1,31 @@
+# Sub-repos (каждый со своим git)
+/bibli/
+/fintech/
+/rusaiauth/
+/rusaicore/
+/rusaifin/
+/rusaisklad_back/
+/rusaisklad_front/
+
+# Secrets
+/prod-secrets/
+**/.env
+**/.env.local
+infra/observability/.env
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build / runtime artifacts
+*.log
+*.pid
+/tmp/
+
+# Claude / agent state
+.claude/
+.playwright-mcp/

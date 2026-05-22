@@ -1,0 +1,242 @@
+#!/usr/bin/env bash
+#
+# russ — единая обёртка над типичными операциями Russ360.
+# Опирается на карту инфры в memory/infra_map.md и scripts/where.sh.
+#
+# Usage:
+#   russ where [--fetch]                   # снимок веток local/dev/prod (= scripts/where.sh)
+#   russ ssh   <svc> <env>                 # ssh + cd в директорию сервиса (env = dev|prod)
+#   russ logs  <svc> <env> [-f] [N]        # tail [-f] последние N строк laravel.log (default 100)
+#   russ shell <svc> <env>                 # docker exec -it <app-container> bash (rusaifin prod = host shell)
+#   russ artisan <svc> <env> -- <args...>  # docker exec ... php artisan <args>; rusaifin prod = на хосте
+#   russ db    <svc> <env>                 # psql/mysql cli внутри db-контейнера
+#   russ ports                             # покажи карту портов (local + dev + prod)
+#   russ help
+#
+# env = local | dev | prod.
+# Любая команда против prod, которая может что-то изменить, требует подтверждения y/N.
+# По умолчанию команды read-only.
+#
+set -Euo pipefail
+
+PROD_HOST="${PROD_HOST:-root@82.146.57.149}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [[ -t 1 ]]; then
+  C_RST=$'\033[0m'; C_DIM=$'\033[2m'; C_B=$'\033[1m'
+  C_GRN=$'\033[32m'; C_RED=$'\033[31m'; C_YLW=$'\033[33m'
+  C_CYN=$'\033[36m'; C_BLU=$'\033[34m'
+else C_RST=; C_DIM=; C_B=; C_GRN=; C_RED=; C_YLW=; C_CYN=; C_BLU=; fi
+
+die() { echo "${C_RED}error:${C_RST} $*" >&2; exit 1; }
+warn() { echo "${C_YLW}warn:${C_RST} $*" >&2; }
+info() { echo "${C_DIM}→${C_RST} $*"; }
+
+confirm_prod() {
+  [[ "${RUSS_ASSUME_YES:-}" == "1" ]] && return 0
+  printf "${C_RED}PROD${C_RST}: %s — продолжить? [y/N] " "$*"
+  read -r r; [[ "$r" =~ ^[yY] ]] || die "abort"
+}
+
+# ---------- mapping (свериться с memory/infra_map.md) ----------
+# svc:env → path
+declare -A SVC_PATH=(
+  [rusaiauth:dev]=/home/Rusaiauth/web/dev.sso.rusaifin.ru/public_html
+  [rusaiauth:prod]=/home/Rusaiauth/web/sso.rusaifin.ru
+  [rusaicore:dev]=/home/Rusaicore/web/dev.server.rusaicore.ru/public_html
+  [rusaicore:prod]=/home/Rusaicore/web/server.rusaicore.ru/public_html
+  [rusaifin:dev]=/home/fintech/web/dev.server.rusaifin.ru/public_html
+  [rusaifin:prod]=/home/fintech/web/server.rusaifin.ru/public_html
+  [rusaisklad:dev]=/home/Rusaisklad/web/dev.server.rusaisklad.ru/public_html
+  [rusaisklad:prod]=/home/Rusaisklad/web/server.rusaisklad.ru/public_html
+  [fintech:dev]=/home/fintech/web/dev.fintech.rusaifin.ru/public_html
+  [fintech:prod]=/home/fintech/web/fintech.rusaifin.ru/public_html
+  [rusaisklad_front:dev]=/home/Rusaisklad/web/dev.rusaisklad.ru/app
+  [rusaisklad_front:prod]=/home/Rusaisklad/web/rusaisklad.ru/app
+)
+
+# svc:env → app-container (для shell/artisan)
+declare -A SVC_APP=(
+  [rusaiauth:local]=rusaiauth-app
+  [rusaiauth:dev]=rusaiauth_back_dev-app
+  [rusaiauth:prod]=rusaiauth_back_prod-app
+  [rusaicore:local]=rusaicore-app
+  [rusaicore:dev]=rusaicore_back_dev-app-1
+  [rusaicore:prod]=rusaicore_back_prod-app-1
+  [rusaifin:local]=rusaifin_local-app-1
+  [rusaifin:dev]=__HOST__   # на dev rusaifin тоже host-php-fpm? проверить; сейчас допустим что да
+  [rusaifin:prod]=__HOST__   # rusaifin на проде НЕ в docker
+  [rusaisklad:local]=rusaisklad_back_local-app-1
+  [rusaisklad:dev]=rusaisklad_back_dev-app-1
+  [rusaisklad:prod]=rusaisklad_back_prod-app-1
+)
+
+# svc:env → db-контейнер (psql/mysql)
+declare -A SVC_DB=(
+  [rusaiauth:local]=rusaiauth-pgsql
+  [rusaiauth:dev]=rusaiauth_back_dev-db
+  [rusaiauth:prod]=rusaiauth_back_prod-db
+  [rusaicore:local]=rusaicore-pgsql
+  [rusaicore:dev]=rusaicore_back_dev-pgsql-1
+  [rusaicore:prod]=rusaicore_back_prod-pgsql-1
+  [rusaifin:local]=__HOST_MYSQL__
+  [rusaifin:dev]=__HOST_MYSQL__
+  [rusaifin:prod]=__HOST_MYSQL__
+  [rusaisklad:local]=rusaisklad_back_local-pgsql-1
+  [rusaisklad:dev]=rusaisklad_back_dev-pgsql-1
+  [rusaisklad:prod]=rusaisklad_back_prod-pgsql-1
+)
+
+# svc:env → (db_name, db_user) — для psql/mysql
+declare -A SVC_DB_INFO=(
+  [rusaiauth]=auth:auth
+  [rusaicore]=core:core
+  [rusaisklad]=rusaisklad:rusaisklad
+  [rusaifin]=findatabase:root
+)
+
+ssh_remote() { ssh -o BatchMode=yes -o ConnectTimeout=5 "${PROD_HOST}" "$@"; }
+ssh_tty()    { ssh -t "${PROD_HOST}" "$@"; }
+
+require_svc_env() {
+  local svc="$1" env="$2"
+  [[ -z "$svc" || -z "$env" ]] && die "usage: russ <cmd> <svc> <env>"
+  case "$env" in local|dev|prod) ;; *) die "env must be local|dev|prod, got: $env" ;; esac
+  case "$svc" in rusaiauth|rusaicore|rusaifin|rusaisklad|fintech|rusaisklad_front) ;; *) die "unknown svc: $svc" ;; esac
+}
+
+# ---------- commands ----------
+
+cmd_where() {
+  exec "${REPO_ROOT}/scripts/where.sh" "$@"
+}
+
+cmd_ssh() {
+  local svc="$1" env="$2"; require_svc_env "$svc" "$env"
+  [[ "$env" == "local" ]] && die "ssh не имеет смысла для local"
+  local p="${SVC_PATH[$svc:$env]:-}"
+  [[ -z "$p" ]] && die "no path for $svc:$env"
+  info "ssh ${PROD_HOST} → cd $p"
+  ssh_tty "cd '$p' && exec \${SHELL:-/bin/bash}"
+}
+
+cmd_logs() {
+  local svc="$1" env="$2"; shift 2
+  require_svc_env "$svc" "$env"
+  local follow="" lines="100"
+  for a in "$@"; do
+    case "$a" in -f|--follow) follow="-f" ;; *[0-9]*) lines="$a" ;; esac
+  done
+  if [[ "$env" == "local" ]]; then
+    local container="${SVC_APP[$svc:local]:-}"
+    [[ -z "$container" ]] && die "no local container for $svc"
+    info "docker logs $container"
+    docker logs $follow --tail "$lines" "$container"
+  else
+    local p="${SVC_PATH[$svc:$env]:-}"
+    [[ -z "$p" ]] && die "no path"
+    info "tail ${follow:+-f} -n $lines $p/storage/logs/laravel.log"
+    ssh_remote "tail $follow -n '$lines' '$p/storage/logs/laravel.log' 2>/dev/null || echo '(нет файла или нет прав)'"
+  fi
+}
+
+cmd_shell() {
+  local svc="$1" env="$2"; require_svc_env "$svc" "$env"
+  if [[ "$env" == "local" ]]; then
+    local c="${SVC_APP[$svc:local]:-}"
+    [[ -z "$c" ]] && die "no local container for $svc"
+    info "docker exec -it $c bash"
+    exec docker exec -it "$c" bash
+  fi
+  local c="${SVC_APP[$svc:$env]:-}"
+  if [[ "$c" == "__HOST__" ]]; then
+    [[ "$env" == "prod" ]] && confirm_prod "host shell в /home/fintech как root"
+    local p="${SVC_PATH[$svc:$env]:-}"
+    info "ssh tty → cd $p"
+    ssh_tty "cd '$p' && exec \${SHELL:-/bin/bash}"
+    return
+  fi
+  [[ -z "$c" ]] && die "no container for $svc:$env"
+  [[ "$env" == "prod" ]] && confirm_prod "интерактивный bash в $c"
+  ssh_tty "docker exec -it '$c' bash"
+}
+
+cmd_artisan() {
+  local svc="$1" env="$2"; require_svc_env "$svc" "$env"
+  shift 2
+  [[ "${1:-}" == "--" ]] && shift
+  [[ $# -eq 0 ]] && die "usage: russ artisan <svc> <env> -- <artisan args>"
+  local cmd="$*"
+  if [[ "$env" == "local" ]]; then
+    local c="${SVC_APP[$svc:local]:-}"
+    [[ -z "$c" ]] && die "no local container"
+    info "docker exec $c php artisan $cmd"
+    exec docker exec "$c" php artisan $cmd
+  fi
+  local c="${SVC_APP[$svc:$env]:-}"
+  [[ "$env" == "prod" ]] && confirm_prod "artisan $cmd в $svc:$env"
+  if [[ "$c" == "__HOST__" ]]; then
+    local p="${SVC_PATH[$svc:$env]:-}"
+    ssh_remote "cd '$p' && php artisan $cmd"
+  else
+    ssh_remote "docker exec '$c' php artisan $cmd"
+  fi
+}
+
+cmd_db() {
+  local svc="$1" env="$2"; require_svc_env "$svc" "$env"
+  local c="${SVC_DB[$svc:$env]:-}"
+  [[ -z "$c" ]] && die "no db container for $svc:$env"
+  IFS=: read -r dbname dbuser <<<"${SVC_DB_INFO[$svc]:-}"
+  [[ -z "$dbname" ]] && die "no db info for $svc"
+
+  if [[ "$c" == "__HOST_MYSQL__" ]]; then
+    [[ "$env" == "prod" ]] && confirm_prod "mysql cli против $dbname на хосте"
+    if [[ "$env" == "local" ]]; then
+      info "mysql -h 127.0.0.1 -u $dbuser $dbname"
+      exec mysql -h 127.0.0.1 -u "$dbuser" "$dbname"
+    else
+      ssh_tty "mysql $dbname"
+    fi
+    return
+  fi
+
+  [[ "$env" == "prod" ]] && confirm_prod "psql против $dbname в $c"
+  if [[ "$env" == "local" ]]; then
+    info "docker exec -it $c psql -U $dbuser $dbname"
+    exec docker exec -it "$c" psql -U "$dbuser" "$dbname"
+  else
+    ssh_tty "docker exec -it '$c' psql -U '$dbuser' '$dbname'"
+  fi
+}
+
+cmd_ports() {
+  cat <<'EOF'
+Local (host):
+  rusaifin (host MySQL):  127.0.0.1:3306
+  rusaisklad PG:          127.0.0.1:5433
+  rusaisklad nginx:       127.0.0.1:8003 → 80
+  rusaiauth (если up):    8002 / PG 5434
+  rusaicore (если up):    8001 / PG (см. compose)
+  rusaifin (если up):     8000 (через rusaifin_local-nginx)
+
+Dev/Prod URLs — см. memory/infra_map.md или `russ where`.
+EOF
+}
+
+cmd_help() {
+  sed -n '3,18p' "$0"
+}
+
+# ---------- dispatch ----------
+case "${1:-help}" in
+  where)   shift; cmd_where "$@" ;;
+  ssh)     shift; cmd_ssh "$@" ;;
+  logs)    shift; cmd_logs "$@" ;;
+  shell)   shift; cmd_shell "$@" ;;
+  artisan) shift; cmd_artisan "$@" ;;
+  db)      shift; cmd_db "$@" ;;
+  ports)   shift; cmd_ports ;;
+  help|-h|--help) cmd_help ;;
+  *) die "unknown cmd: $1 (try: russ help)" ;;
+esac
