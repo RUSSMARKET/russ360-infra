@@ -58,15 +58,17 @@ docker compose down -v   # ВНИМАНИЕ: -v стирает все volume'ы 
 
 ## На сервере (prod)
 
-Директория: `/root/observability/` (паттерн server-side скриптов в `/root/`).
+Директория: `/root/russ360-infra/infra/observability/` (часть репы `RUSSMARKET/russ360-infra`, clone через deploy key `/root/.ssh/id_ed25519_russ360_infra`).
 
 ```bash
-ssh root@82.146.57.149
-git -C /root/observability pull   # или клонировать первым деплоем
-cp /root/prod-secrets/observability.env /root/observability/.env
-cd /root/observability
+ssh shake
+cd /root/russ360-infra
+git pull
+cd infra/observability
 docker compose up -d
 ```
+
+`.env` на сервере **не в репе** — лежит в `/root/russ360-infra/infra/observability/.env` (chmod 600). При первом clone скопировать из `/root/observability.env.bak.*` или сгенерить заново.
 
 Перед запуском в `.env` выставить реальные пути логов rusaifin:
 
