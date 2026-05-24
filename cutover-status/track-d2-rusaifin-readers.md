@@ -101,11 +101,22 @@ in-memory фейки контрактов через `bindCoreContracts()` + `se
   (подтверждено автором — строже прежнего). `StaffVisibilityScopingTest` переписан на
   FakesCoreReadModels; контракт-тест доступа обновлён (code RUSAIFIN_{id}). 31/31 в наборе.
   ⚠ Семантика доступа изменилась: Core-членство = доступ к проекту (раньше требовался локальный пивот-линк).
+  **Сверка семантики (2026-05-25):** `SeedProdMirror::collectAssignments` сеет Core-членства из ВСЕХ
+  локальных привязок (project_point_agents, project_supports, project_regional_directors,
+  project_points.group_leader_id, projects.project_manager_id + глобальные роли). ⇒ own-projects
+  (через членства) ≡ «viewer привязан к проекту». Легитимный доступ не теряется. Старая логика была
+  ШИРЕ (проекты со-участников) — непреднамеренная утечка; новая строже и корректна. Подтверждено фактами.
+
+- **2026-05-25 — Шаг 2b / Tier 2 StaffService (commit 0a7f7bf):** `getAccessiblePointIds`,
+  `resolveReportingPointIds`, `getUnassignedRoleIds`, `isUserAttached` переведены на Core.
+  Новое в scope-сервисе: `visiblePointIdsByUsers` (проекты users → локации → assignments-батч),
+  `attachedLocalUserIds`. Удалён `preloadUserAttachments` + статкэш + импорт DB. Тест
+  `StaffReportingScopeTest` (3). 27/27 в наборе.
 
 ## In progress
-- Шаг 2b (Tier 2 — `StaffService` scope-методы: getAccessiblePointIds, resolveReportingScope/
-  resolveReportingPointIds, getProjectStaff, preloadUserAttachments, getUnassignedRoleIds,
-  isUserAttached-fallback). Нужен batch-by-employee для assignments (точки агента/РГ).
+- Шаг 2c (Tier 2 остаток — `StaffService::getProjectStaff`): нестед project→points→agents/leader +
+  regional_directors/project_manager/supports relations. Ещё читает локальные пивоты. Самый тяжёлый
+  метод визибилити (строит структуру для /staff UI). Переключить на Core с сохранением формы ответа.
 
 ## Blocked
 - —
