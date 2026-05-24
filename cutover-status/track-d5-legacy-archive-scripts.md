@@ -1,6 +1,6 @@
 # Track D5 — Legacy archive scripts
 
-**Status:** in-progress
+**Status:** done
 **Owner chat:** dolgan / 2026-05-24 session
 **Last update:** 2026-05-24
 
@@ -73,26 +73,51 @@
   - Rollback path A (raw `.sql` через PDO) → 0 триггеров, запись разблокирована.
   - Rollback path B (`migrate:rollback` → down()) → 0 триггеров, запись в
     `migrations` снята. БД оставлена в исходном состоянии, temp-dir удалён.
+- **2026-05-24 — dev dry-run (fintech_devbase, restored prod-shaped, MySQL 8.0.45):**
+  - Все 5 таблиц на месте с prod-объёмами: points=247, agents=4896, projects=15,
+    supports=6, regional_directors=7.
+  - **Найден privilege-блокер 1419** (см. ниже) — миграция под app-юзером падает.
+  - Триггеры созданы под MySQL root (auth_socket, имеет SUPER) из `d5_lock.sql`.
+    **15/15** write-путей отбиты `errno=1644 sqlstate=45000` на реальных данных;
+    чтение всех 5 таблиц работает.
+  - Откат через `unlock-legacy-tables.sql` → 0 триггеров, запись разблокирована,
+    `migrations` чист. Temp-файлы на dev и локально удалены.
 
-## In progress
+## ⚠️ Cutover prerequisite (находка dev dry-run)
 
-- Коммит скриптов на `cutover-final` (rusaifin) + статуса (root repo). Без push.
+**На dev/prod `log_bin=ON`, а app-юзер БД (на dev `fintech_devuser`) не имеет `SUPER`** →
+`CREATE TRIGGER` падает с `SQLSTATE[HY000] 1419 You do not have the SUPER privilege and
+binary logging is enabled`. Локально это не воспроизводится (binlog off), поэтому ловится
+только на dev. `log_bin_trust_function_creators` на dev = `OFF`.
 
-## Blocked
+**Решение (выбрано автором): pre-step `SET GLOBAL` в cutover-окне.** Привилегированный
+оператор (MySQL root через auth_socket) в окне, ДО `php artisan migrate --path=...`:
 
-- Нет блокеров.
+1. Запомнить исходное значение: `SHOW GLOBAL VARIABLES LIKE 'log_bin_trust_function_creators';` (на dev было `OFF`).
+2. `SET GLOBAL log_bin_trust_function_creators = 1;`
+3. Прогнать cutover-миграции (включая lock-триггеры).
+4. Восстановить: `SET GLOBAL log_bin_trust_function_creators = 0;` (или исходное).
+
+Этот prerequisite продублирован в docblock'е миграции. Должен попасть в Track F runbook
+(перед шагом migrate) и в Track E rehearsal-чеклист. Альтернатива на случай проблем —
+прогнать `d5_lock.sql` напрямую под MySQL root (минуя artisan), как делали в dev dry-run
+и как деплоили C4 на prod.
 
 ## Next
 
-- **Dev dry-run на restored prod dump** — только после явного «иди на dev». На dev
-  важно проверить, что `project_supports` / `project_regional_directors` содержат
-  данные (локально 8 / 7 строк) и что триггеры не конфликтуют с реальными FK.
-- На prod НИЧЕГО не катить — миграция применяется только в cutover-окне (Track F).
+- На prod НИЧЕГО не катить — миграция применяется только в cutover-окне (Track F),
+  с pre-step выше.
+- **Track F runbook / Track E rehearsal:** внести `SET GLOBAL
+  log_bin_trust_function_creators` как шаг перед `migrate --path=cutover`.
 - Post-acceptance (после D7): рассмотреть rename `*_legacy` отдельным cleanup.
+- Push `cutover-final` (rusaifin) — по команде автора (по умолчанию не пушу).
 
 ## Artifacts
 
-- rusaifin (ветка `cutover-final`):
+- rusaifin (ветка `cutover-final`, локальные коммиты, без push):
   - `database/migrations/cutover/2026_05_24_000000_lock_legacy_tables_read_only.php`
+    (commit `e79c2ef` + docblock-prereq правка)
   - `database/scripts/cutover/unlock-legacy-tables.sql`
+- root repo (main): этот status-файл.
 - Local dry-run: findatabase @ rusaifin_local-app-1, MySQL 8.0.45.
+- Dev dry-run: fintech_devbase @ 82.146.57.149 (host php-fpm, не docker), MySQL 8.0.45.
