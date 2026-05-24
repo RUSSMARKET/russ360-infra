@@ -1,8 +1,8 @@
 # Track C — Pre-window technical debt
 
-**Status:** in-progress
-**Owner chat:** dolgan / 2026-05-21 session
-**Last update:** 2026-05-21
+**Status:** done
+**Owner chat:** dolgan / 2026-05-21 — 2026-05-22 session
+**Last update:** 2026-05-22
 
 ## Состав
 
@@ -28,8 +28,30 @@
 
 - **C3 (DONE 2026-05-22)**: ADR-0005 `docs/adr/0005-rusaifin-prod-app-debug-on.md` зафиксировал решение оставить `APP_DEBUG=true` на rusaifin prod. README ADR обновлён. Defence-in-depth проверен: nginx 404 на `/.env`, `/.git/*`, `/storage/*`. Никаких prod-операций.
 
+- **C2 dev (DONE 2026-05-22)**: vendor'нул bibli в `rusaisklad_front/local-bibli/` (1.8 MB, 188 файлов из RUSSMARKET/russ-ui#main). `package.json`: `"bibli": "file:./local-bibli"`. Dockerfile.front.{dev,prod}: `COPY local-bibli`, удалён `UPDATE_BIBLI` ARG, добавлены `ENV NUXT_LOCAL_BIBLI(_PATH)`. `scripts/update-bibli.sh` — refresh upstream main с сохранением shim'а. `deploy.sh`: `UPDATE_BIBLI=true` (default) теперь запускает `update-bibli.sh` НА ХОСТЕ и предупреждает про несохранённые изменения. Также: `npm install` (не `npm ci`) — package-lock.json не в репо. Commits: `5993b80` + `45fd9b1`. Dev deploy через `bash ./deploy/deploy.sh dev` отработал штатно, HTTP 200 на dev.rusaisklad.ru/login, JS-чанк содержит `logoutGlobal`/`logoutLocal` — vendored bibli работает.
+
+- **C2 prod (DONE 2026-05-22)**: cherry-pick'ed `5993b80` + `45fd9b1` на `main` (теперь `3333d0d` + `f40a4ac`), пушнул в `origin/main`. Не мерджил dev→main, потому что в dev лежит 5 чужих unrelated коммитов (auth refactor, session handling) — их пусть автор деплоит отдельно. На prod: `git pull main` + `./deploy/deploy.sh prod` отработали штатно. Image `rusaisklad_front_prod-nuxt-dev` пересобран с vendored bibli (`Successfully built 55d5486b0d27`). HTTP 200 на rusaisklad.ru, A5 logout-fix (`logoutGlobal`/`logoutLocal`) теперь в bundle штатным путём — эфемерный workaround от 2026-05-20 устранён.
+
+## Track summary
+- **Status: DONE** (все 4 item закрыты 2026-05-21 / 2026-05-22).
+- C1, C4 — critical, applied на prod через env-update + data fix.
+- C3 — documentation only (ADR-0005).
+- C2 — vendored bibli, prod docker build теперь воспроизводимый.
+
+## Bonus 1: устранён ручной `docker network connect` для sklad/core ↔ rusaiauth
+- **rusaisklad_back** compose.back.{dev,prod}.yaml: `rusaiauth-net` объявлена как external с фиксированным именем (`rusaiauth_back_{env}_app-network`), `app` сервис теперь декларативно подключён. Commit dev `2fa4c17` → cherry-pick на main `7ab14b9`. Smoke: dev count=527, prod count=546 без ручного connect'а.
+- **rusaicore** compose.back.{dev,prod}.yaml — симметричный fix. Commit dev `fe583be` → cherry-pick на main `fdec160`. Smoke dev: `count=527`. Prod: сети присоединены декларативно, но `RUSAIAUTH_DB_HOST` на core prod env пустой (там backfill через DB-link никогда не настраивали) — fix declarative-ready, реальной БД не дёргает.
+- Memory `m2_dev_cutover_done` обновлен: пункт 6 (runtime `docker network connect`) помечен как устаревший.
+
+## Bonus 2: nginx healthcheck IPv6/IPv4 fix (2026-05-22)
+- **Симптом:** все 6 nginx-контейнеров (rusaiauth, rusaicore, rusaisklad_back на dev и prod) висели `(unhealthy)` 5+ недель. Trafic шёл, статус был unhealthy.
+- **Root cause:** alpine `wget` резолвит `localhost` в `::1` (IPv6), а nginx слушает только `0.0.0.0:80`. Healthcheck падал «connection refused» на `[::1]:80`.
+- **Fix:** в compose.back.{dev,prod}.yaml каждого репо заменено `http://localhost/...` → `http://127.0.0.1/...` (форсит IPv4). 1-строчный diff на файл.
+- **Commits:** rusaiauth dev `40ec18d` / main `fd5bd96`; rusaicore dev `47ec28f` / main `a3fef87`; rusaisklad_back dev `1a2d4bc` / main `f1ad117`.
+- **Deploy:** `docker compose ... up -d --force-recreate nginx` (или `auth-nginx`) на всех 6 серверах. Smoke: все 6 контейнеров теперь `(healthy)` спустя 30 секунд.
+
 ## In progress
-- C3 закрыт. Остаётся C2 (bibli pipeline) — единственный нерешённый item трека.
+—
 
 ## Blocked
 - —
