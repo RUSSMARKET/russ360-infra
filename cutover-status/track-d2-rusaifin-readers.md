@@ -127,8 +127,13 @@ in-memory фейки контрактов через `bindCoreContracts()` + `se
   Тест `tests/Unit/User/UserServiceCoreReadsTest` (6). Acceptance-grep по UserService → только
   `detachFromProjectsAndPoints` (WRITE, D4).
 
+- **2026-05-25 — Шаг 3 / Tier 4 — ProductService::projectHasAccess:** PM/РД → hasCoreProjectAttachment
+  (продукт не фильтруется — сохранён legacy-noop: `->with([...])->exists()` игнорировал eager-load);
+  GL/AGENT → resolveAttachedPayload['points'] (Core leader/agent assignments) → point_products (local).
+  Удалены неиспользуемые импорты Project/Point. Тест `tests/Unit/Products/ProductProjectAccessTest` (3).
+
 ## In progress
-- Шаг 3 (Tier 4): остаётся ProductService::projectHasAccess, NotificationService NewUser/UserBlocked,
+- Шаг 3 (Tier 4): остаётся NotificationService NewUser/UserBlocked,
   StaffRegistrationController::sendAccessGrantedEmail.
 
 ## Blocked
