@@ -82,6 +82,7 @@ Integration-тесты на каждый эндпоинт в `tests/Feature/Api/
 ## Done
 - 2026-05-24: прочитан контекст (Track A/C status, ADR 0001-0004, memory). Обследована архитектура rusaicore API. Составлен план, подтверждены Решения 1+2.
 - 2026-05-24: создана ветка `cutover-final` от dev. Реализованы все 5 пунктов скоупа + инфра ApiListRequest. Integration-тесты на каждый. Обновлены спека `02-core-extend.md` (секция 4a) и `openapi/core-mvp1.openapi.yaml`. Suite 76/76, pint clean, smoke зелёный. Закоммичено на `cutover-final`.
+- 2026-05-24: **+6-й batch-фильтр (по запросу D3):** `GET /v1/employees` получил `filter[external_ids][]` (≤100, uuid, `whereIn external_id`, `bulkPerPage`). D1 не покрывал employees, а `EmployeeDirectory::listByLocalUserIds` в sklad батчевый → без bulk был бы N+1. Симметрично projects. Спека 4a + OpenAPI обновлены. EmployeesApiTest 7/7 (3 новых: bulk-match / >100→422 / non-uuid→422). Commit `b2154df` на `cutover-final`.
 
 ## In progress
 - —
