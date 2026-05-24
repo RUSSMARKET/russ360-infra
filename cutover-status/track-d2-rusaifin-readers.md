@@ -132,9 +132,17 @@ in-memory фейки контрактов через `bindCoreContracts()` + `se
   GL/AGENT → resolveAttachedPayload['points'] (Core leader/agent assignments) → point_products (local).
   Удалены неиспользуемые импорты Project/Point. Тест `tests/Unit/Products/ProductProjectAccessTest` (3).
 
+- **2026-05-25 — Шаг 3 / Tier 4 — NotificationService + registration (commit 3c):**
+  NewUser/UserBlocked: referal-точка резолвится локально (residue) → project_id → supports проекта из
+  Core memberships(role=support_manager) (новый `supportUserIdsForReferal`). **Исправлен latent-баг**:
+  legacy плакал supports ВСЕХ проектов (фильтр points не влиял на pluck) — теперь scope к проекту
+  referal-точки (подтверждено автором). support_supervisor — без изменений. Удалён импорт Project.
+  `StaffRegistrationController::sendAccessGrantedEmail`: имя проекта → CoreScopeResolver (убрал Project::).
+  Тест `tests/Unit/System/NotificationReferalSupportsTest` (2). **Tier 4 (Шаг 3) полностью на Core.**
+
 ## In progress
-- Шаг 3 (Tier 4): остаётся NotificationService NewUser/UserBlocked,
-  StaffRegistrationController::sendAccessGrantedEmail.
+- Шаг 4 (Tier 3 — reports/exports): StaffEffectivenessMetricsService, Exports (Magnit/StaffEffectiveness/
+  TotalResult), PlansController (getShiftReportFieldsByProjects/getStaffResult/exportStaffRegistry).
 
 ## Blocked
 - —
