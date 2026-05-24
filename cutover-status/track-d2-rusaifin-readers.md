@@ -94,8 +94,18 @@ in-memory фейки контрактов через `bindCoreContracts()` + `se
   Общий mock-слой `tests/Concerns/FakesCoreReadModels` (5 контрактов) + `Tier1ReadersTest`.
   Затронутый feature-набор зелёный (18/18).
 
+- **2026-05-25 — Шаг 2a / Tier 2 visibility (commit fdfd565):** `StaffVisibilityScopeService`
+  переведён на Core (resolveVisibleProjectIdsByUsers / filterVisibleIdsByLocalProject /
+  resolveAttachedPayload — через memberships+assignments+resolver; new accessibleLocalProjectIdsForViewer;
+  конструктор +2 dep). `ProjectPointAccessService::hasProjectAccess` упрощён до **own-projects**
+  (подтверждено автором — строже прежнего). `StaffVisibilityScopingTest` переписан на
+  FakesCoreReadModels; контракт-тест доступа обновлён (code RUSAIFIN_{id}). 31/31 в наборе.
+  ⚠ Семантика доступа изменилась: Core-членство = доступ к проекту (раньше требовался локальный пивот-линк).
+
 ## In progress
-- Шаг 2 (Tier 2 — visibility scope).
+- Шаг 2b (Tier 2 — `StaffService` scope-методы: getAccessiblePointIds, resolveReportingScope/
+  resolveReportingPointIds, getProjectStaff, preloadUserAttachments, getUnassignedRoleIds,
+  isUserAttached-fallback). Нужен batch-by-employee для assignments (точки агента/РГ).
 
 ## Blocked
 - —
