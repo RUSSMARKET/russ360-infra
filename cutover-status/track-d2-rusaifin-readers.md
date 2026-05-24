@@ -1,8 +1,8 @@
 # Track D2 — rusaifin reader switch
 
-**Status:** in-progress (план составлен, ждём «иди» на реализацию)
-**Owner chat:** dolgan / 2026-05-24 session
-**Last update:** 2026-05-24
+**Status:** ✅ DONE (reader-switch завершён: Шаг 0–5 / Tier 1–4). НЕ мерджить в dev/main до D7.
+**Owner chat:** dolgan / 2026-05-24..25 sessions
+**Last update:** 2026-05-25
 
 ## Цель
 
@@ -152,25 +152,40 @@ in-memory фейки контрактов через `bindCoreContracts()` + `se
   - all-projects display anchor: StaffEffectivenessExport:152 (`Project::pluck('id')` для шапки, как `Project::query()->get()` в getProjectStaff).
   getStaffResult / StaffRegistryExport — grep-чистые (string whereHas('point.project') + Point::, scope=Core).
 
-## In progress
-- Шаг 5 (финал): smoke на mocked Core, acceptance-grep по app/, починка pre-existing red
-  (CurrentProjectServiceTest — cache facade), финальный апдейт status.
+- **2026-05-25 — Шаг 5 (финал):** smoke `tests/Feature/Reporting/AdminReportsSmokeTest` —
+  `/api/shift/reports/fields/by-projects` под admin через весь стек (auth:oauth → UserIsNotDisabled →
+  ResolveCurrentProject → CheckPermission:staff.management) на mocked Core → 200. Починен pre-existing red
+  `CurrentProjectServiceTest` (PHPUnit TestCase → Tests\TestCase; CACHE_STORE=array уже в phpunit.xml).
+  **Полный suite: 137/137 зелёный (0 red).** Acceptance-grep по `rusaifin/app/` — остаток только
+  sanctioned residue (см. ниже).
+
+## Acceptance-grep — финальный остаток (всё sanctioned)
+
+`grep "ProjectPoint::|Project::|ProjectPointAgent::|->projects()|->points()" rusaifin/app/`:
+- **writers / D4:** ProjectController (create/update/delete/products/setSupport…), ProjectService,
+  SystemController (`$project->points()` product-sync), PointController:545/620 (Project::find имени для
+  History в addAgent/deleteAgent), UserService:809 (detachFromProjectsAndPoints).
+- **cutover/reconcile tooling:** Console/Commands/Core/* (CutoverMetricsSnapshot, ReconcileCoreData).
+- **reader/resolver/anchor:** CoreScopeResolver, ProjectTeamReader (docblock), ProjectController::getProject:111
+  (local Project anchor → ProjectTeamReader::attachTeam), StaffService:438/446 (getProjectStaff anchor).
+- **products-domain (нет в Core):** StaffEffectivenessMetricsService:35/63, PlansController:403/429,
+  ProjectController:744 (`Project::with(products)`).
+- **shift/all-projects anchor:** TotalResultExport:53, MagnitTotalResultExport:104,
+  StaffEffectivenessExport:152.
+- Модели (`belongsTo(Project::class)` и т.п.) — определения связей, не reads.
+
+Visibility-чтений из локальных пивотов (project_supports/regional_directors/point_agents/group_leader_id)
+в read-путях НЕ осталось — все на Core.
 
 ## Blocked
 - —
 
-## Pre-existing red (НЕ от D2, baseline на cutover-final)
-- `tests/Unit/Project/CurrentProjectServiceTest` (5) — extends PHPUnit TestCase, facade `cache`
-  не забутстрапен (Cache-путь добавлен в CurrentProjectService прежними коммитами).
-- `tests/Unit/Staff/StaffVisibilityScopingTest` (3 из reporting-scope) — зовут несуществующий
-  `bindCoreContracts()` (недописанные тесты прежнего коммита). Будут переписаны в Шаге 2.
-  На HEAD группа вообще фаталила (фикс фейка в 0a поднял её до runnable).
+## Pre-existing red
+- ✅ устранены. `CurrentProjectServiceTest` починен в Шаге 5. `StaffVisibilityScopingTest` переписан в Шаге 2a.
 
 ## Next
-- Шаг 2: `StaffVisibilityScopeService::resolveVisibleProjectIdsByUsers` / `filterVisibleIdsByLocalProject`
-  / `resolveAttachedPayload` + `StaffService` access + `ProjectPointAccessService` — перевести
-  локальные пивот-чтения на Core (через resolver). Переписать StaffVisibilityScopingTest.
-- Затем Шаг 3 (Tier 4), Шаг 4 (Tier 3 reports/exports), Шаг 5 (smoke + acceptance-grep).
+- D2 завершён. Ветка `cutover-final` (rusaifin) — НЕ мерджить в dev/main до D7 (dev-rehearsal).
+- Дальше по спринту: D6/D7 (см. `docs/final-stage-cutover-cleanup-sprint-plan.md`).
 
 ## Artifacts
 - `cutover-status/track-d2-controllers-registry.md` (реестр читателей — этой сессии)
