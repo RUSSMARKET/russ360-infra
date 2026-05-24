@@ -113,10 +113,16 @@ in-memory фейки контрактов через `bindCoreContracts()` + `se
   `attachedLocalUserIds`. Удалён `preloadUserAttachments` + статкэш + импорт DB. Тест
   `StaffReportingScopeTest` (3). 27/27 в наборе.
 
+- **2026-05-25 — Шаг 2c / Tier 2 getProjectStaff (commit c8ac5fe):** новый `ProjectStaffReader` —
+  батч-сборка project→{PM/RD/supports, points→{agents,leader}} из Core (~2 вызова, без N+1).
+  `getProjectStaff` переписан; сохранены legacy-условия (supports priv+with_data, extra personal-data
+  по ролям, GROUP_LEADER → свои точки). Тест `ProjectStaffReaderTest` (3). 37/37 в наборе (вкл.
+  StaffListVisibilityTest). **Tier 2 (visibility) полностью на Core.** Остаток Project::/Point:: в
+  StaffService — anchor-чтения «все проекты/точки» для привилегированных (residue).
+
 ## In progress
-- Шаг 2c (Tier 2 остаток — `StaffService::getProjectStaff`): нестед project→points→agents/leader +
-  regional_directors/project_manager/supports relations. Ещё читает локальные пивоты. Самый тяжёлый
-  метод визибилити (строит структуру для /staff UI). Переключить на Core с сохранением формы ответа.
+- Шаг 3 (Tier 4 — инцидентные: UserService getProducts/getAgentsId/isAttached, ProductService,
+  NotificationService, registration controllers).
 
 ## Blocked
 - —
