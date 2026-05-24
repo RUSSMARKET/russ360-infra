@@ -140,9 +140,21 @@ in-memory фейки контрактов через `bindCoreContracts()` + `se
   `StaffRegistrationController::sendAccessGrantedEmail`: имя проекта → CoreScopeResolver (убрал Project::).
   Тест `tests/Unit/System/NotificationReferalSupportsTest` (2). **Tier 4 (Шаг 3) полностью на Core.**
 
+- **2026-05-25 — Шаг 4 / Tier 3 (reports/exports):** ключевой факт — вся *visibility/scope* уже на Core
+  (resolveReportingScope / getAccessiblePointIds / getAgentsId, Tier 2b). «Сырой» visibility в Tier 3 НЕТ;
+  агрегация shifts/reports/product_history остаётся локальной (так и задумано). Переключены только
+  name-label lookup'ы на CoreScopeResolver: TotalResultExport:260, StaffEffectivenessExport:139/154/172
+  (новый `projectNamesByLocalIds`), MagnitTotalResultExport:315/335, PlansController::shouldUseMagnitReport.
+  Тест `tests/Unit/Reporting/ReportProjectNamesFromCoreTest` (3 — Core-имя побеждает локальное).
+  **Tier 3 закрыт.** Остаточный grep (group B) — sanctioned residue:
+  - products-anchor: StaffEffectivenessMetricsService:35/63, PlansController:403/429 (`Project::with(products…)` — товаров в Core нет);
+  - shift-anchor tree: TotalResultExport:53, MagnitTotalResultExport:104 (local project→point→agent для раскладки shift-сумм; агенты ограничены Core scopedAgentIds);
+  - all-projects display anchor: StaffEffectivenessExport:152 (`Project::pluck('id')` для шапки, как `Project::query()->get()` в getProjectStaff).
+  getStaffResult / StaffRegistryExport — grep-чистые (string whereHas('point.project') + Point::, scope=Core).
+
 ## In progress
-- Шаг 4 (Tier 3 — reports/exports): StaffEffectivenessMetricsService, Exports (Magnit/StaffEffectiveness/
-  TotalResult), PlansController (getShiftReportFieldsByProjects/getStaffResult/exportStaffRegistry).
+- Шаг 5 (финал): smoke на mocked Core, acceptance-grep по app/, починка pre-existing red
+  (CurrentProjectServiceTest — cache facade), финальный апдейт status.
 
 ## Blocked
 - —
