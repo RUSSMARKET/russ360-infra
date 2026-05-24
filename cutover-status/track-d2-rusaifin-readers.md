@@ -120,9 +120,16 @@ in-memory фейки контрактов через `bindCoreContracts()` + `se
   StaffListVisibilityTest). **Tier 2 (visibility) полностью на Core.** Остаток Project::/Point:: в
   StaffService — anchor-чтения «все проекты/точки» для привилегированных (residue).
 
+- **2026-05-25 — Шаг 3 / Tier 4 — UserService:** `getProducts` (ветки GL/РД/ПМ схлопнуты в одну:
+  accessibleLocalProjectIdsForViewer → projects_products pivot; товарная матрица — local-residue),
+  `getAgentsId` (→ resolveVisibleUserIds, currentProject=null, привилегир.=все агенты),
+  `isAttached` (Core-only зеркало StaffService::isUserAttached; удалён `isAttachedLegacy`).
+  Тест `tests/Unit/User/UserServiceCoreReadsTest` (6). Acceptance-grep по UserService → только
+  `detachFromProjectsAndPoints` (WRITE, D4).
+
 ## In progress
-- Шаг 3 (Tier 4 — инцидентные: UserService getProducts/getAgentsId/isAttached, ProductService,
-  NotificationService, registration controllers).
+- Шаг 3 (Tier 4): остаётся ProductService::projectHasAccess, NotificationService NewUser/UserBlocked,
+  StaffRegistrationController::sendAccessGrantedEmail.
 
 ## Blocked
 - —
