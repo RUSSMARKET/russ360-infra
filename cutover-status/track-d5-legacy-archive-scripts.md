@@ -28,6 +28,25 @@ upd_othercol=ALLOWED, upd_leader=BLOCKED(45000), upd null→null=ALLOWED. Син
 `unlock-legacy-tables.sql` обновлён под новый набор. ⚠ **Dev re-dry-run нужен заново** (старый
 dry-run был на 15 триггерах full-freeze) — внести в Track E rehearsal.
 
+**Re-dry-run подготовлен (pre-Track-E cleanup, 2026-05-25):** скрипт `/tmp/d5_dryrun.sh`
+(13 narrowed триггеров + pre-step `log_bin_trust_function_creators=1` + 17 проб + авто-rollback
++ restore log_bin). Read-only разведка `fintech_devbase` подтвердила: 0 триггеров (чисто),
+prod-shaped данные (project_point_agents=4896 / points=247 / projects=15 / supports=6 /
+reg_dirs=7), `log_bin_trust_function_creators=OFF`. root-mysql write по SSH блокируется
+auto-классификатором ([[mysql_trigger_super_1419]]) → запущено автором через `!`.
+
+**✅ Результат прогона на dev (2026-05-25): PASS=17 / FAIL=0.** Все 13 триггеров создались
+(narrowed set), `log_bin_trust_function_creators` 0→1→0 (восстановлен). Пробы (в ROLLBACK-транзакциях):
+- **13 blocked** (errno 1644 «…READ-ONLY post-cutover…»): 9 full-freeze (ins/upd/del × 3 пивота)
+  + 2 guard ins-with-value (`project_points.group_leader_id`, `projects.project_manager_id`)
+  + 2 guard upd-change.
+- **4 allowed** (anchor read-write сохранён — D4 Option A): ins null-leader, ins null-PM,
+  upd прочей колонки (project_points.name, projects.name).
+- Reads работают: points=247, agents=4896, projects=15. Триггеры дропнуты (0 осталось).
+
+⇒ **Суженный D5 (13 триггеров, Option A) подтверждён на dev prod-shaped данных.** Готов к Track F
+(в окне: pre-step `SET GLOBAL log_bin_trust_function_creators=1` → migrate `--path=cutover` → restore).
+
 Делает legacy-таблицы rusaifin read-only в момент cutover'а через BEFORE-триггеры,
 которые отбивают любые INSERT/UPDATE/DELETE понятным сообщением. После writer-switch
 (D4) authoritative-источник этих доменов — rusaicore; legacy-таблицы остаются только

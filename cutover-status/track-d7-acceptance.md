@@ -1,6 +1,6 @@
 # Track D7 — Acceptance test suite (Phase 2 gate)
 
-**Status:** ✅ DONE (suite построен и зелёный локально; ⚠ sklad full-suite — environmental caveat, см. ниже). НЕ мерджить в dev/main до Track E.
+**Status:** ✅ DONE (suite построен и зелёный локально; sklad full-suite re-baseline на квисцентной среде = 127 passed/13 skip/0 red, см. ниже). НЕ мерджить в dev/main до Track E.
 **Owner chat:** dolgan / 2026-05-25 session (после D6)
 **Last update:** 2026-05-25
 
@@ -53,16 +53,31 @@ feature-тесты сидят локальные users/projects/memberships).
 **Per-class зелёный** (на спокойной машине): InventoryApiTest 76/76, BusinessApiTest 15+2skip,
 SkuApiTest 7, CoreApiClientTest (token-fix), IContactSync/DocumentGeneration. Commit `653a298`.
 
-### ⚠ Environmental caveat — sklad full-suite нестабилен на нагруженной dev-машине
+### ✅ Re-baseline на квисцентной среде — 2026-05-25 (pre-Track-E cleanup)
 
-`php artisan test tests/Feature` (все классы разом) **флакает**: набор падений меняется между
-прогонами (26 → 13 → 7, разные классы), при большом классе среда деградирует в середине
-(~43 passed, дальше **всё** 500-ит — даже endpoints, ожидающие 400/403). Тот же одиночный
-прогон `InventoryApiTest` давал 76/76, затем 33-failed **без изменения кода**. Причина —
-**исчерпание ресурсов/коннектов** на машине под нагрузкой (obs-стек из ~10 контейнеров +
-Track B + параллельные прогоны; `rusaicore-core-app` уже OOM-умер, Exited 137). Это инфра,
-не логика и не trait. **Официальный зелёный baseline снять на квисцентной среде в Track E**
-(остановить obs-стек/Track B, либо прогнать per-class). Логика доказана per-class green.
+Подтверждено: флакинг был **на 100% средовой**, не логика и не trait.
+
+**Метод:** остановлен локальный obs-стек (10 контейнеров `docker stop` по
+`label=stack=observability`), sklad переключён на `cutover-final`, full feature-suite
+прогнан в контейнере `rusaisklad_back_local-app-1`. obs-стек восстановлен (`docker start`).
+
+**Результат (стабильно ×3 прогона):** `php artisan test tests/Feature` →
+**127 passed, 13 skipped, 0 failed** (796 assertions), ~7–8s, без деградации в середине.
+
+13 skipped — все санкционированные/документированные:
+- **10 × `AuthTest`** — legacy Sanctum `/api/v1/auth/login` (HasApiTokens удалён в M2 cutover);
+  под удаление, когда rusaisklad_front полностью на OIDC PKCE.
+- **2 × `BusinessApiTest`** (`@group sklad-legacy-local-write`) — current-project membership
+  write/update 500-ит без Core external-id mapping; покроется sklad-write-via-Core sub-track.
+- **1 × `CoreApiClientTest`** — pre-M2 `X-Core-Token` header path (S2S теперь Bearer JWT).
+
+**Сравнение со старым каveat'ом:** прежние прогоны под нагрузкой (obs ~10 контейнеров +
+Track B + параллельные прогоны; `rusaicore-core-app` OOM Exited 137) флакали 26→13→7 red
+из-за исчерпания ресурсов/коннектов. На квисцентной среде — стабильный зелёный.
+
+> Историческая справка (caveat до re-baseline): набор падений менялся между прогонами,
+> при большом классе среда деградировала в середине (~43 passed → дальше всё 500), тот же
+> `InventoryApiTest` давал то 76/76, то 33-failed без изменения кода.
 
 ## Baseline report (snapshot 2026-05-25)
 
@@ -71,7 +86,7 @@ Track B + параллельные прогоны; `rusaicore-core-app` уже O
 | rusaicore | full | **83 passed** (стабильно) |
 | rusaifin | full | **152 passed** (стабильно) |
 | rusaisklad_back | per-class | InventoryApiTest 76/76; BusinessApiTest 15+2 skip; SkuApiTest 7; CoreApiClientTest green; DocumentGeneration/IContactSync green |
-| rusaisklad_back | full | ⚠ environmentally flaky (см. caveat) — re-baseline в Track E |
+| rusaisklad_back | full | **127 passed, 13 skipped, 0 red** (квисцентная среда, стабильно ×3 — re-baseline 2026-05-25) |
 
 ## Acceptance D7 (мой scope) — статус
 
@@ -79,7 +94,7 @@ Track B + параллельные прогоны; `rusaicore-core-app` уже O
 - ✅ sklad suite восстановлен из 105-red (trait); per-class green.
 - ✅ Все 4 backend собираются на `cutover-final`.
 - ⚠ Полный green на dev с restored prod-dump + observability smoke — **Track E** (по scope-решению 1).
-- ⚠ sklad full-suite green — подтвердить на квисцентной среде (Track E).
+- ✅ sklad full-suite green — подтверждено на квисцентной среде 2026-05-25 (127/13 skip/0 red, стабильно ×3).
 
 ## Deferred (вне D7 → Track E/прочее)
 
