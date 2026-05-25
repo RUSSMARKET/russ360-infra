@@ -72,7 +72,17 @@
 
 ## Deploy-фаза — разведка и план (2026-05-25)
 
-### GlitchTip (prod glitchtip.rusaifin.ru) — состояние
+### GlitchTip — проекты СОЗДАНЫ (2026-05-25, prod)
+- org `russmarket` (id=1), team `russ360`, 6 проектов (idempotent get_or_create):
+  `rusaicore`(id1), `rusaiauth`(id2), `rusaifin`(id3), `rusaisklad-back`(id4), `fintech-front`(id5), `rusaisklad-front`(id6).
+- DSN получены (`ProjectKey.get_dsn()` → `https://<key>@glitchtip.rusaifin.ru/<id>`). **В git НЕ коммичу** (ingestion-ключи, полу-секрет). На деплое впишу в `.env` каждого сервиса; источник истины — GlitchTip (перечитать idempotent-скриптом через `obs-glitchtip-web ./manage.py shell`).
+- Регистрация уже закрыта (`enableUserRegistration:false`) — Track A TODO выполнен ранее, доп.действий не нужно.
+
+### Telegram — chat id определён
+- Бот добавлен в группу **«RSM Infra»**, chat id **`-5136374164`** → вписан в `contactpoints.yaml` (`chatid`, не секрет, закоммичен).
+- Bot token — держу для серверного `.env` (`GF_TELEGRAM_BOT_TOKEN`), в git/memory не пишу.
+
+### GlitchTip (prod glitchtip.rusaifin.ru) — состояние (история разведки)
 - API v4.1.5, `/api/0/` → 200.
 - **`enableUserRegistration: false`** — регистрация уже закрыта (Track A TODO «закрыть после first user» — выполнено кем-то).
 - Read-only counts: **users=1, orgs=1, projects=0**. First-user + org уже есть.

@@ -5,7 +5,7 @@ apiVersion: 1
 #              A bot token (digits:alnum) stays a string after Grafana env-expansion.
 #   chatid   — NOT secret → hardcoded. Grafana re-types an env-expanded numeric value into a
 #              number and rejects it (must be string), so the chat id is inlined here.
-#              Placeholder "0" until the real chat id is set; replace with the target chat id.
+#              Target chat: Telegram group "RSM Infra".
 contactPoints:
   - orgId: 1
     name: telegram-russ360
@@ -14,5 +14,5 @@ contactPoints:
         type: telegram
         settings:
           bottoken: "${GF_TELEGRAM_BOT_TOKEN}"
-          chatid: "0"
+          chatid: "-5136374164"
         disableResolveMessage: false
