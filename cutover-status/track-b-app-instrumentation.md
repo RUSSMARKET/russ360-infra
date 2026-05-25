@@ -81,9 +81,10 @@
 - rusaicore / rusaisklad_back `app`: vendor **из образа** (бинд только .env/storage/cache) → деплой = build+recreate.
 - rusaiauth `auth-app`: бинд-маунт **всего чекаута** → нужен `composer install` на хосте (vendor с хоста). ⚠️ Проверить, так ли на prod-compose каждого сервиса перед prod-деплоем.
 
-**Осталось на dev:**
-- rusaifin (native php-fpm 8.3, apcu+apc.enabled=On на хосте есть): host `composer install` + `.env` (DSN id3, LOG_CHANNEL=json) + config:clear + fpm reload. Scrape **отложен** (native, нет app-network → нужен отдельный metrics-vhost).
-- fintech / rusaisklad_front: rebuild Nuxt с `@sentry/vue` + `NUXT_PUBLIC_SENTRY_DSN` (ids 5,6).
+**Осталось на dev (требует внимания/решений — НЕ доделано):**
+
+- **rusaifin dev — НЕ ТРОНУТ (риск).** Чекаут `/home/fintech/web/dev.server.rusaifin.ru/public_html` на ветке `dev`, но **0 behind / 11 ahead** origin/dev — 11 НЕотправленных коммитов (вероятно параллельный чат). vhost `dev.server.rusaifin.ru/nginx.conf` → `proxy_pass http://82.146.57.149:8080` (механизм подачи неясен — не нашёл php-fpm пул `dev.server.rusaifin.ru` на php8.3; только prod-домены). Перед деплоем: (1) выяснить, что слушает :8080 и где vendor рантайма; (2) решить судьбу 11 коммитов. Мой obs-код в origin/dev (58d9d68) — ancestor, т.е. в чекауте присутствует. Scrape rusaifin всё равно отложен (native, нет app-network).
+- **fintech / rusaisklad_front — НЕ доделано (нужна пересборка с build-time DSN).** Оба контейнера отдают **статику** (`serve -s .output/public`), DSN запекается на `nuxt generate`, рантайм-env не действует. Нужно: прокинуть `NUXT_PUBLIC_SENTRY_DSN` (fintech id5, sklad id6) в **build-env** (правка `Dockerfile.front.{dev,prod}` ENV/ARG + deploy) и пересобрать (`nuxt generate`). bibli у sklad_front vendored — блокер снят. Проверка: grep DSN в `.output/public/_nuxt/*.js`.
 
 **Prod-деплой:** ждёт явного «иди на прод». Учесть: per-service bind-mount стратегию (host composer где нужно), rusaifin native (apcu на host prod, Hestia nginx /metrics allowlist, scrape-vhost), DSN с SENTRY_ENVIRONMENT=production.
 
