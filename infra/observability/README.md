@@ -65,8 +65,13 @@ ssh shake
 cd /root/russ360-infra
 git pull
 cd infra/observability
-docker compose up -d
+docker compose -f compose.yml -f compose.scrape.yml up -d
 ```
+
+> **Важно (Track B):** на сервере запускать с override `compose.scrape.yml` — он подключает
+> `obs-prometheus` к `*_app-network` каждого backend, чтобы скрейпить `/metrics` по имени
+> nginx-контейнера (хост-порты сервисов слушают только `127.0.0.1` и из bridge недоступны).
+> Локально override НЕ применяется (этих сетей нет; app-скрейп локально не нужен).
 
 `.env` на сервере **не в репе** — лежит в `/root/russ360-infra/infra/observability/.env` (chmod 600). При первом clone скопировать из `/root/observability.env.bak.*` или сгенерить заново.
 
@@ -79,6 +84,9 @@ GLITCHTIP_DOMAIN=https://glitchtip.rusaifin.ru
 GF_SERVER_ROOT_URL=https://observability.rusaifin.ru
 GLITCHTIP_EMAIL_URL=smtp://localhost:25
 OBS_HOSTNAME=prod
+# Telegram alerting (Track B) — bot token от @BotFather + chat id целевого чата:
+GF_TELEGRAM_BOT_TOKEN=123456:ABC...
+GF_TELEGRAM_CHAT_ID=-1001234567890
 ```
 
 Поддомены создаются через Hestia (`v-add-web-domain`), затем proxy_pass на `127.0.0.1:3030` / `127.0.0.1:8050`. Поверх Grafana — basic auth в nginx.
@@ -109,12 +117,16 @@ infra/observability/
 
 - **cAdvisor + Docker 29 + containerd snapshotter (`io.containerd.snapshotter.v1`)** — per-container метрики (`container_memory_rss{name="..."}`) на локалке могут быть пустыми. Cadvisor ходит за `/var/lib/docker/image/overlayfs/layerdb/mounts/<id>/mount-id`, которого при containerd snapshotter нет. Хост-метрики (`id="/"`) работают; per-container проверять на prod (там docker storage driver другой).
 
-## Track B (что появится позже)
+## Track B (instrumentation)
 
-- `/metrics` endpoints на 4 backend → раскомментировать scrape jobs в `prometheus/prometheus.yml`.
-- Sentry SDK в сервисах → DSN из GlitchTip → exception tracking.
-- Alert rules в `prometheus/alerts/*.yml` + Grafana contact points (Telegram).
-- UptimeRobot пинг наружных URL.
+Статус: [`/cutover-status/track-b-app-instrumentation.md`](../../cutover-status/track-b-app-instrumentation.md).
+
+- **Scrape:** jobs `rusaicore` / `rusaiauth` / `rusaisklad` в `prometheus/prometheus.yml` (по имени nginx-контейнера через `compose.scrape.yml`). `rusaifin` (native) — отложен (см. status).
+- **Метрики приложений** (Prometheus namespace `russ360_`): `http_requests_total`, `http_request_duration_seconds`, `exceptions_total` (RED по всем сервисам) + бизнес: `active_sessions` (rusaifin), `active_tokens` (rusaiauth), `core_api_request_duration_seconds` / `core_gateway_errors_total` (sklad gateway).
+- **Sentry SDK** в сервисах → DSN из GlitchTip → exception tracking (бэкенды `sentry/sentry-laravel`, фронты `@sentry/vue`).
+- **Alerting** (provisioned): `grafana/provisioning/alerting/{rules,contactpoints,policies}.yaml` — 5xx>1%, p95>1s, exceptions>5/min, disk>80/95%. Контакт-поинт Telegram (`GF_TELEGRAM_BOT_TOKEN`/`GF_TELEGRAM_CHAT_ID`).
+- **Dashboard:** `services-overview.json` (RED + бизнес-метрики + scrape up + error-логи).
+- **UptimeRobot** пинг наружных URL — настраивается в UptimeRobot UI/API (не в репе): Grafana, SSO, оба фронта.
 
 ## Whitelist принципы (важно)
 

@@ -1,0 +1,101 @@
+# Track B — Application instrumentation
+
+**Status:** in progress
+**Owner chat:** dolgan / 2026-05-25 session
+**Last update:** 2026-05-25
+**Depends on:** Track A (done) — observability stack live on prod.
+
+> ⚠️ **НЕ cutover-specific.** Track B идёт обычным flow: feature branch → dev → main → prod.
+> **НЕ работать на `cutover-final`.** Все репо инструментируются на ветке `feature/track-b-instrumentation`.
+
+## Зафиксированные решения (конвенции)
+
+### 1. Sentry / GlitchTip DSN
+- 1 GlitchTip-проект на сервис (6): `rusaiauth`, `rusaicore`, `rusaifin`, `rusaisklad-back`, `fintech-front`, `rusaisklad-front`.
+- PHP: `SENTRY_LARAVEL_DSN` в `.env` (gitignored), `SENTRY_ENVIRONMENT=${APP_ENV}`, `SENTRY_TRACES_SAMPLE_RATE=0.1`.
+- Front: `NUXT_PUBLIC_SENTRY_DSN` через runtimeConfig.
+- DSN пустой локально → Sentry — no-op. Проекты + DSN создаются в deploy-фазе (GlitchTip UI/API на prod).
+- После первого GlitchTip-юзера → `ENABLE_USER_REGISTRATION=False` + recreate `obs-glitchtip-web` (закрываем Track A TODO).
+
+### 2. `/metrics` — IP-allowlist на nginx (без basic auth)
+- Endpoint в корне (`/metrics`, не под `/api`). Скрейпится obs-prometheus через host-published nginx-порт.
+- nginx `location = /metrics`: allow loopback + `10/8`, `172.16/12`, `192.168/16`; `deny all`.
+- В Laravel route публичный (без `auth:oauth`), защита — только на nginx.
+
+### 3. Metrics-библиотека — `promphp/prometheus_client_php` + самописный тонкий слой
+- Выбор «самописный» (kickoff допускал spatie или самописный). Причина: полный контроль над именами `russ360_*` и лейблами, меньше магии (дух ADR-0004).
+- Компоненты (копируются 1:1 между backend): `App\Infrastructure\Observability\MetricsRegistry`, `App\Http\Middleware\PrometheusRequestMetrics`, `App\Http\Controllers\MetricsController`, `App\Providers\ObservabilityServiceProvider`, `config/prometheus.php`.
+- **Storage = APCu** (`PROMETHEUS_STORAGE=apcu`) — php-fpm pool shared memory, без Redis-зависимости. ext-apcu добавлен в Dockerfile. Тесты — `inmemory` (phpunit.xml). Redis-адаптер доступен опцией.
+- **Service/env лейблы НЕ эмитятся приложением** — их вешает Prometheus на scrape target (избегаем `exported_service` clash).
+
+### 4. Имена метрик
+- `russ360_http_requests_total{method,route,status}` (counter)
+- `russ360_http_request_duration_seconds{method,route}` (histogram; buckets 0.025..10s)
+- `russ360_exceptions_total` (counter) — из `report()` callback в bootstrap/app.php; даёт «error rate» в Prometheus вместо опроса GlitchTip → единый алертинг.
+- route-лейбл = matched route pattern (`v1/projects/{id}`), не raw path → нет cardinality-взрыва.
+- Бизнес-метрики по сервисам (план): rusaicore — RED+exceptions (он сам Core API → его histogram = «Core API latency»); rusaiauth — active_sessions (tokens); rusaifin/sklad — active_sessions (online_in), core_api_*, core_gateway_errors, dualwrite_fallback.
+
+### 5. JSON-логи
+- Контейнерные (auth/core/sklad): env-флип `LOG_CHANNEL=stderr` + `LOG_STDERR_FORMATTER=Monolog\Formatter\JsonFormatter` (канал `stderr` уже есть → кода не требует). Применяется на dev/prod через `.env`.
+- rusaifin (native, не docker): нужен json file-канал → `storage/logs/laravel.log` + Promtail host-path JSON stage.
+
+## Прогресс по сервисам
+
+Все backend — на ветке `feature/track-b-instrumentation` (от origin/dev). Push на «иди на dev».
+
+| Сервис | Sentry | /metrics | Бизнес-метрика | JSON-логи | Тесты |
+|---|---|---|---|---|---|
+| rusaicore | ✅ | ✅ | — (он сам Core API) | env stderr | ✅ 66 green |
+| rusaiauth | ✅ | ✅ | active_tokens | env stderr | ✅ obs green (suite: 1 pre-existing RecoveryFlow fail) |
+| rusaisklad_back | ✅ | ✅ | core_api latency + core_gateway_errors | env stderr | ✅ obs 6 green |
+| rusaifin | ✅ | ✅ | active_sessions | `json` channel (LOG_CHANNEL=json) | ✅ obs 4 green |
+| fintech (front) | — | n/a | n/a | n/a | — |
+| rusaisklad_front | — | n/a | n/a | n/a | — |
+
+### Деплой-нюансы по сервисам
+- **APCu** добавлен в Dockerfile всех 4 backend (rusaicore cli+fpm, rusaiauth cli+fpm, sklad php_base, rusaifin local). **rusaifin prod — native php-fpm, НЕ docker** → apcu нужно поставить на хосте (`pecl install apcu` + ini), иначе storage сам деградирует в in-memory (метрики не агрегируются между воркерами, но app не падает).
+- **JSON-логи:** контейнерные сервисы — env `LOG_CHANNEL=stderr` + `LOG_STDERR_FORMATTER=Monolog\Formatter\JsonFormatter` (канал уже есть). rusaifin prod (native) — `LOG_CHANNEL=json` (новый канал → laravel.log, Promtail host-path).
+- **nginx allowlist `/metrics`:** добавлен в docker nginx-конфиги (auth/core/sklad/rusaifin-local). **rusaifin prod (Hestia native nginx)** — allowlist добавить через per-domain include (как в [[observability_stack]] про кастомные templates), не из репы.
+
+## Done
+
+- **2026-05-25 — план утверждён** (per-service + DSN/endpoint конвенция + alert rules yaml). Решение по metrics-либе пересмотрено: spatie → самописный promphp (см. выше).
+- **2026-05-25 — rusaicore инструментирован** (commit `10508b5` на `feature/track-b-instrumentation`).
+  - Sentry SDK ^4.25, promphp ^2.15. /metrics root-route + RED middleware на api-группе. exceptions counter из report(). APCu в обоих Dockerfile (cli + fpm-alpine). nginx allowlist. unit+feature тесты, полный suite 66 green. Локальный smoke: APCu-агрегация подтверждена (counter/histogram растут между запросами, /metrics себя не считает).
+
+## In progress
+
+- fintech front (@sentry/nuxt).
+
+## Next
+
+- fintech → rusaisklad_front (@sentry/nuxt).
+- Infra wiring: расскоментировать scrape jobs (prometheus.yml), alerting provisioning, README.
+- Deploy-фаза: GlitchTip проекты+DSN, Telegram bot, UptimeRobot.
+
+## Done (продолжение)
+
+- **2026-05-25 — rusaiauth** (commits на feature branch): Sentry + /metrics + active_tokens + terminate-middleware + apcu-fallback. obs-тесты гоняются в контейнере (host без pdo_sqlite). 1 pre-existing fail в `RecoveryFlowTest` подтверждён на чистом origin/dev — не наш.
+- **2026-05-25 — rusaisklad_back**: Sentry + /metrics + CoreApiClient инструментирован (core_api latency / core_gateway_errors). Чужой doc-реорг WIP (53 del + 3 new docs) изолирован в **stash@{0}** на ветке — отдать автору.
+- **2026-05-25 — rusaicore** доведён: collector-hook + global→terminate middleware + apcu in-memory fallback (4 доп. коммита).
+- **2026-05-25 — rusaifin**: Sentry + /metrics + active_sessions + json log channel. Core-gateway/dualwrite метрики **отложены** (CoreApiClient активно меняется на cutover-final D2 — инструментация на dev = конфликт при merge).
+
+## ⚠️ Сохранённый чужой WIP (требует внимания автора)
+
+Я работал на feature-ветках от origin/dev. В рабочих деревьях нашёл незакоммиченные изменения — изолировал, **ничего не потеряно**, но автору надо разрулить:
+
+- **rusaiauth:** `docker/Dockerfile` vite-builder stage → **stash@{0}** (`track-b: preserve author WIP vite-builder`). При pop возможен тривиальный merge с моей apcu-строкой (разные регионы файла).
+- **rusaisklad_back:** doc-реорг (53 удаления + 3 новых docs) → **stash@{0}** (`track-b: preserve author doc-reorg WIP`).
+- **rusaifin:** в рабочем дереве ветки `feature/track-b-instrumentation` остались **незакоммиченные** правки `app/Http/Controllers/Project/{PointController,ProjectController}.php` (D2 `CoreScopeResolver` reader-switch). Их НЕТ ни в origin/dev, ни в committed cutover-final, ни (полностью) в stash — похоже, параллельная работа автора. Я **намеренно исключил** их из своего obs-коммита (soft-reset + unstage) и оставил нетронутыми. Реши, куда их девать (вероятно — на cutover-final). cutover-final-WIP rusaifin (CoreApiClient/services/cutover-миграции + 2 теста) лежит в rusaifin **stash@{0}**.
+
+## Known follow-ups (не решаю сам)
+
+- **rusaifin Core-gateway метрики** (core_api latency, dualwrite_fallback) отложены — добавить когда D2/D6 приземлятся (CoreApiClient на cutover-final).
+- **rusaifin dev↔cutover-final разошлись** (D2). После приземления B в main + pull в cutover-final понадобится merge `dev→cutover-final` (или явный отказ + sync позже). Не трогаю cutover-final в этом треке.
+- **rusaifin `origin/main` содержит чужие незадеплоенные коммиты** (Track C heads-up: Magnit metrics, ShiftService, redirect + миграция). При merge B в main и pull на prod подтянутся вместе — согласовать с автором тех коммитов.
+- **rusaicore deploy от root падает по SSH** (deploy-key у user `Rusaicore`) — workaround `runuser -u Rusaicore`.
+
+## От пользователя нужно (deploy-фаза)
+
+- **Telegram:** bot token + chat id (через @BotFather). В memory/файлы не пишем.
+- **UptimeRobot:** аккаунт/API-ключ ИЛИ ручное заведение 4 мониторов: Grafana, `https://sso.rusaifin.ru`, `https://fintech.rusaifin.ru`, `https://rusaisklad.ru`.

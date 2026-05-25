@@ -1,0 +1,159 @@
+apiVersion: 1
+
+# Grafana-managed alert rules (provisioned). Datasource uid PBFA97CFB590B2093 = Prometheus
+# (see provisioning/datasources/datasources.yml). Thresholds are first-pass — calibrate
+# during the Phase 0 baseline week.
+groups:
+  - orgId: 1
+    name: russ360-service-health
+    folder: Russ360
+    interval: 1m
+    rules:
+      - uid: russ360-5xx-rate
+        title: '5xx rate > 1% (per service)'
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.service }}/{{ $labels.env }}: 5xx share {{ printf "%.1f" (mulf $values.A.Value 100) }}% over 5m'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: >
+                sum by (service,env) (rate(russ360_http_requests_total{status=~"5.."}[5m]))
+                /
+                clamp_min(sum by (service,env) (rate(russ360_http_requests_total[5m])), 1e-9)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.01] }
+
+      - uid: russ360-latency-p95
+        title: 'Request latency p95 > 1s (per service)'
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.service }}/{{ $labels.env }}: p95 latency {{ printf "%.2f" $values.A.Value }}s'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: >
+                histogram_quantile(0.95,
+                  sum by (le,service,env) (rate(russ360_http_request_duration_seconds_bucket[5m])))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [1] }
+
+      - uid: russ360-exception-rate
+        title: 'Exception rate > 5/min (per service)'
+        condition: C
+        for: 1m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.service }}/{{ $labels.env }}: {{ printf "%.0f" $values.A.Value }} exceptions/min (also in GlitchTip)'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: 'sum by (service,env) (rate(russ360_exceptions_total[1m])) * 60'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [5] }
+
+  - orgId: 1
+    name: russ360-host
+    folder: Russ360
+    interval: 1m
+    rules:
+      - uid: russ360-disk-80
+        title: 'Host disk > 80%'
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Host root filesystem {{ printf "%.0f" $values.A.Value }}% used'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: >
+                100 * (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}
+                / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"})
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [80] }
+
+      - uid: russ360-disk-95
+        title: 'Host disk > 95%'
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: 'CRITICAL: host root filesystem {{ printf "%.0f" $values.A.Value }}% used'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: >
+                100 * (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}
+                / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"})
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [95] }

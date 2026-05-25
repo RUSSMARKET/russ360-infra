@@ -1,0 +1,40 @@
+# Server-only override: attaches obs-prometheus to each backend's *_app-network so it
+# can scrape the nginx containers by name (their /metrics ports are bound to 127.0.0.1
+# on the host and unreachable from a plain bridge container).
+#
+# Apply ONLY on dev/prod (shake), where these networks exist:
+#   docker compose -f compose.yml -f compose.scrape.yml up -d
+#
+# Local `docker compose up -d` (compose.yml alone) does NOT load this — the app-networks
+# don't exist locally and app scraping isn't needed there.
+
+services:
+  prometheus:
+    networks:
+      - default
+      - rusaicore_dev
+      - rusaicore_prod
+      - rusaiauth_dev
+      - rusaiauth_prod
+      - rusaisklad_dev
+      - rusaisklad_prod
+
+networks:
+  rusaicore_dev:
+    external: true
+    name: rusaicore_back_dev_app-network
+  rusaicore_prod:
+    external: true
+    name: rusaicore_back_prod_app-network
+  rusaiauth_dev:
+    external: true
+    name: rusaiauth_back_dev_app-network
+  rusaiauth_prod:
+    external: true
+    name: rusaiauth_back_prod_app-network
+  rusaisklad_dev:
+    external: true
+    name: rusaisklad_back_dev_app-network
+  rusaisklad_prod:
+    external: true
+    name: rusaisklad_back_prod_app-network

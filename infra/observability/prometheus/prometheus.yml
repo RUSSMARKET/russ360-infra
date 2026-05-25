@@ -20,9 +20,8 @@ scrape_configs:
       - targets: ['host.docker.internal:9100']
         labels:
           env: infra
-    # Локально: host.docker.internal не резолвится без extra_hosts.
-    # На prod node_exporter в network_mode: host, поэтому достаём через docker0 gateway.
-    # Если targets не отвечает, заменить на 172.17.0.1:9100 (docker0 bridge) или host.docker.internal с extra_hosts.
+    # node_exporter runs in network_mode: host → reachable via the docker0 gateway
+    # (host.docker.internal). Unlike app services, it binds 0.0.0.0:9100.
 
   - job_name: cadvisor
     static_configs:
@@ -30,36 +29,42 @@ scrape_configs:
         labels:
           env: infra
 
-  # ---------- Placeholders for Track B (заполняются при инструментации сервисов) ----------
-  # Локально все сервисы доступны через docker через respective networks;
-  # на prod — через 127.0.0.1:80XX nginx-проксики (см. infra_map).
-  #
-  # - job_name: rusaicore
-  #   metrics_path: /metrics
-  #   static_configs:
-  #     - targets: ['host.docker.internal:9011']
-  #       labels: { service: rusaicore, env: prod }
-  #     - targets: ['host.docker.internal:8011']
-  #       labels: { service: rusaicore, env: dev }
-  #
-  # - job_name: rusaiauth
-  #   metrics_path: /metrics
-  #   static_configs:
-  #     - targets: ['host.docker.internal:8002']
-  #       labels: { service: rusaiauth, env: prod }
-  #     - targets: ['host.docker.internal:8012']
-  #       labels: { service: rusaiauth, env: dev }
-  #
-  # - job_name: rusaisklad
-  #   metrics_path: /metrics
-  #   static_configs:
-  #     - targets: ['host.docker.internal:9000']
-  #       labels: { service: rusaisklad, env: prod }
-  #     - targets: ['host.docker.internal:8000']
-  #       labels: { service: rusaisklad, env: dev }
+  # ───────────────────── App services (Track B) ─────────────────────
+  # App nginx ports are bound to 127.0.0.1 on the host and are NOT reachable from a
+  # bridge container. Instead, obs-prometheus joins each service's *_app-network
+  # (see compose.scrape.yml, applied only on the server) and scrapes the nginx
+  # container by name on port 80. /metrics is IP-allowlisted at nginx to private nets.
+
+  - job_name: rusaicore
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['rusaicore_back_prod-nginx-1:80']
+        labels: { service: rusaicore, env: prod }
+      - targets: ['rusaicore_back_dev-nginx-1:80']
+        labels: { service: rusaicore, env: dev }
+
+  - job_name: rusaiauth
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['rusaiauth_back_prod-nginx:80']
+        labels: { service: rusaiauth, env: prod }
+      - targets: ['rusaiauth_back_dev-nginx:80']
+        labels: { service: rusaiauth, env: dev }
+
+  - job_name: rusaisklad
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['rusaisklad_back_prod-nginx-1:80']
+        labels: { service: rusaisklad, env: prod }
+      - targets: ['rusaisklad_back_dev-nginx-1:80']
+        labels: { service: rusaisklad, env: dev }
+
+  # rusaifin runs native php-fpm (NOT docker) → no app-network to join. Scraping it
+  # needs a dedicated loopback /metrics vhost on the host (or host-header routing),
+  # wired at deploy time. Deferred (also frozen under the D4 work in flight).
   #
   # - job_name: rusaifin
   #   metrics_path: /metrics
   #   static_configs:
-  #     - targets: ['host.docker.internal:80']
+  #     - targets: ['host.docker.internal:PORT']   # via dedicated metrics vhost
   #       labels: { service: rusaifin, env: prod }

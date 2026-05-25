@@ -1,55 +1,119 @@
 {
   "annotations": { "list": [] },
   "editable": true,
-  "fiscalYearStartMonth": 0,
-  "graphTooltip": 0,
+  "graphTooltip": 1,
   "id": null,
-  "links": [],
-  "liveNow": false,
+  "uid": "russ360-services-overview",
+  "title": "Services overview",
+  "tags": ["russ360", "services"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 2,
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "templating": { "list": [] },
   "panels": [
     {
-      "type": "table",
-      "title": "Scrape targets — UP",
+      "type": "timeseries",
+      "title": "Request rate (req/s) by service/env",
       "id": 1,
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
       "targets": [
-        { "expr": "up", "format": "table", "instant": true, "refId": "A" }
-      ],
+        { "expr": "sum by (service,env) (rate(russ360_http_requests_total[5m]))", "legendFormat": "{{service}}/{{env}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency p95 (s) by service/env",
+      "id": 2,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le,service,env) (rate(russ360_http_request_duration_seconds_bucket[5m])))", "legendFormat": "{{service}}/{{env}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "5xx share by service/env",
+      "id": 3,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0 }, "overrides": [] },
+      "targets": [
+        { "expr": "sum by (service,env) (rate(russ360_http_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum by (service,env) (rate(russ360_http_requests_total[5m])), 1e-9)", "legendFormat": "{{service}}/{{env}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Exceptions / min by service/env",
+      "id": 4,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum by (service,env) (rate(russ360_exceptions_total[1m])) * 60", "legendFormat": "{{service}}/{{env}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Core API latency p95 (s) — gateway clients",
+      "id": 5,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le,service,env,endpoint) (rate(russ360_core_api_request_duration_seconds_bucket[5m])))", "legendFormat": "{{service}}/{{env}} {{endpoint}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Core gateway errors/min + dual-write fallback/min",
+      "id": 6,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum by (service,env) (rate(russ360_core_gateway_errors_total[5m])) * 60", "legendFormat": "errors {{service}}/{{env}}", "refId": "A" },
+        { "expr": "sum by (service,env) (rate(russ360_dualwrite_fallback_total[5m])) * 60", "legendFormat": "fallback {{service}}/{{env}}", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Active sessions / tokens",
+      "id": 7,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        { "expr": "russ360_active_sessions", "legendFormat": "sessions {{service}}/{{env}}", "refId": "A" },
+        { "expr": "russ360_active_tokens", "legendFormat": "tokens {{service}}/{{env}}", "refId": "B" }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Scrape targets — UP (1 = up)",
+      "id": 8,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } }, "overrides": [] },
+      "targets": [
+        { "expr": "up{job=~\"rusaicore|rusaiauth|rusaisklad|rusaifin\"}", "format": "table", "instant": true, "refId": "A" }
+      ],
       "options": { "showHeader": true }
     },
     {
       "type": "logs",
-      "title": "Recent logs (all whitelisted containers)",
-      "id": 2,
-      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 10 },
+      "title": "Recent error-level logs (all backends)",
+      "id": 9,
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 32 },
       "datasource": { "type": "loki", "uid": "P8E80F9AEF21F6940" },
       "targets": [
-        { "expr": "{job=\"docker\"}", "refId": "A" }
+        { "expr": "{job=\"docker\"} |~ \"(?i)error|exception|critical\"", "refId": "A" }
       ],
-      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending" }
-    },
-    {
-      "type": "text",
-      "title": "Track B placeholder",
-      "id": 3,
-      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 24 },
-      "options": {
-        "mode": "markdown",
-        "content": "Заполняется в **Track B — Application instrumentation**: request rate / latency / error panels по каждому из 4 backend и 2 фронтов."
-      }
+      "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "none", "sortOrder": "Descending" }
     }
-  ],
-  "refresh": "30s",
-  "schemaVersion": 39,
-  "tags": ["russ360", "services"],
-  "templating": { "list": [] },
-  "time": { "from": "now-1h", "to": "now" },
-  "timepicker": {},
-  "timezone": "browser",
-  "title": "Services overview",
-  "uid": "russ360-services-overview",
-  "version": 1,
-  "weekStart": ""
+  ]
 }
