@@ -89,7 +89,30 @@
 - **fintech front — ✅ DONE (dev + PROD).** dev: DSN id5/env=dev. prod: ff-merge dev→main (f985f7d), pull main, `.env` DSN id5/env=production, `npm ci`+`generate`. DSN_BAKED в `.output/public/_nuxt/*.js`, оба отдают 200. Грабля (оба): снести root-owned `node_modules`/`.nuxt`/`.output` (memory fintech-front-gotcha #3), переустановить от fintech.
 - **rusaisklad_front — ✅ DONE (dev + PROD).** `@sentry/vue` plugin + `Dockerfile.front.{dev,prod}` build-ARG + `compose.front.{dev,prod}.yml` `build.args` (DSN из shell-env, не в git). dev: pull/build рутом (Вариант Б — pull через root SSH-алиас `github-rusaisklad-front`; снят root-owned `local-bibli` артефакт); фикс `npm ci`→`npm install` в Dockerfile.front.dev (lock gitignored). prod: cherry-pick Sentry-коммитов (017b6cb/ab3059a/ff9c2d8) на main (dev разошёлся — не merge), pull main рутом, build с DSN id6/env=production. DSN_BAKED в обоих, оба отдают 200. Сборка с DSN: `NUXT_PUBLIC_SENTRY_DSN=<id6> NUXT_PUBLIC_SENTRY_ENVIRONMENT=<env> docker compose -p rusaisklad_front_<env> -f compose.front.<env>.yml build nuxt-dev && up -d --force-recreate`.
 
-**Prod-деплой:** ждёт явного «иди на прод». Учесть: per-service bind-mount стратегию (host composer где нужно), rusaifin native (apcu на host prod, Hestia nginx /metrics allowlist, scrape-vhost), DSN с SENTRY_ENVIRONMENT=production.
+**Prod-деплой backends — ✅ DONE (2026-05-25).** Стратегия: cherry-pick obs-коммитов на main (dev/main разошлись — не merge), pull main на prod-чекаут, env (SENTRY_ENVIRONMENT=production), build/composer, recreate/reload.
+- **rusaicore prod ✅** — target up, apcu, 0 ошибок. (cherry-pick 6 коммитов → main 6f2babc)
+- **rusaiauth prod ✅** — target up, discovery/JWKS 200, **iss=https://sso.rusaifin.ru в свежем JWT подтверждён** (quirk цел), 0 ошибок. build `--no-cache` (критичный IdP). pull рутом (SSH-алиас github-rusaiauth). DB-юзер prod = `rusaiauth_prod` (не `auth`). (main 161f1b6)
+- **rusaisklad_back prod ✅** — target up, apcu, 0 ошибок. (main 88c783c)
+- **rusaifin prod ✅** — native: pull main рутом (.git root-owned), composer install (composer:2 uid 1005), env LOG_CHANNEL=json/DSN id3/production, package:discover+config:clear (php8.3). Сайт server.rusaifin.ru=200, /metrics отдаёт russ360, Sentry-событие в project 3, JSON-логи. **Scrape отложен** (native). (main 2272e17)
+
+**Финал scrape-таргетов:** rusaicore/rusaiauth/rusaisklad × {dev,prod} = **6/6 UP**. rusaifin (dev+prod) — endpoint работает, scrape отложен.
+
+## ✅ TRACK B — ЗАВЕРШЁН (кроме отложенного rusaifin scrape)
+
+| Компонент | dev | prod |
+|---|---|---|
+| obs-стек (Prometheus/Grafana/Loki/GlitchTip) | ✅ | ✅ (shared) |
+| Grafana alerts + Telegram («RSM Infra») | ✅ | ✅ |
+| rusaicore (Sentry+/metrics+JSON) | ✅ UP | ✅ UP |
+| rusaiauth (+active_tokens, iss verified) | ✅ UP | ✅ UP |
+| rusaisklad_back (+core gateway metrics) | ✅ UP | ✅ UP |
+| rusaifin (Sentry+/metrics+JSON, scrape deferred) | ✅ | ✅ |
+| fintech front (@sentry/vue) | ✅ | ✅ |
+| rusaisklad_front (@sentry/vue) | ✅ | ✅ |
+| GlitchTip 6 проектов + DSN | ✅ | ✅ |
+| UptimeRobot 4 монитора | — | ✅ (user) |
+
+**Открытые follow-up:** (1) rusaifin scrape (native, нужен metrics-vhost/Host-header job + nginx allowlist) — отложено по решению пользователя; (2) rusaifin dev/cutover-final merge (D-track); (3) backend dev↔main разошлись (obs на main только cherry-pick'ами — при будущих merge учесть).
 
 ## In progress
 
