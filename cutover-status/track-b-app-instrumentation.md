@@ -78,6 +78,15 @@
 - DSN получены (`ProjectKey.get_dsn()` → `https://<key>@glitchtip.rusaifin.ru/<id>`). **В git НЕ коммичу** (ingestion-ключи, полу-секрет). На деплое впишу в `.env` каждого сервиса; источник истины — GlitchTip (перечитать idempotent-скриптом через `obs-glitchtip-web ./manage.py shell`).
 - Регистрация уже закрыта (`enableUserRegistration:false`) — Track A TODO выполнен ранее, доп.действий не нужно.
 
+### UptimeRobot — только ручное создание (free plan)
+- Аккаунт заведён, Main API key есть. Но **free plan запрещает создание мониторов через API** (`newMonitor` → `access_denied: not allowed with your current plan`; read-методы работают). Telegram-контакт тоже за платным тарифом → используем **email** (контакт id 8457318, `dolgantraff@…`, активен).
+- **Заводить мониторы вручную в UI** (4 шт., HTTP(s), 5 мин, alert contact = email):
+  - `russ360 · Grafana` → `https://observability.rusaifin.ru/api/health`
+  - `russ360 · SSO` → `https://sso.rusaifin.ru/.well-known/openid-configuration`
+  - `russ360 · fintech front` → `https://fintech.rusaifin.ru/`
+  - `russ360 · sklad front` → `https://rusaisklad.ru/`
+- Все 4 URL проверены: отдают 200. Keyword-мониторинг — опционально позже в UI.
+
 ### Telegram — chat id определён
 - Бот добавлен в группу **«RSM Infra»**, chat id **`-5136374164`** → вписан в `contactpoints.yaml` (`chatid`, не секрет, закоммичен).
 - Bot token — держу для серверного `.env` (`GF_TELEGRAM_BOT_TOKEN`), в git/memory не пишу.
