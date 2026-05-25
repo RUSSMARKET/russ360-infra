@@ -84,10 +84,14 @@ GLITCHTIP_DOMAIN=https://glitchtip.rusaifin.ru
 GF_SERVER_ROOT_URL=https://observability.rusaifin.ru
 GLITCHTIP_EMAIL_URL=smtp://localhost:25
 OBS_HOSTNAME=prod
-# Telegram alerting (Track B) — bot token от @BotFather + chat id целевого чата:
+# Telegram alerting (Track B) — bot token от @BotFather (секрет):
 GF_TELEGRAM_BOT_TOKEN=123456:ABC...
-GF_TELEGRAM_CHAT_ID=-1001234567890
 ```
+
+> Chat id — **не секрет** и зашит в `grafana/provisioning/alerting/contactpoints.yaml`
+> (`chatid: "..."`). Заменить плейсхолдер `"0"` на id целевого чата. Причина: Grafana
+> мис-типизирует env-раскрытый числовой chat id в number и отклоняет (нужна строка) —
+> поймано локальным smoke. Bot token (формат `digits:alnum`) остаётся строкой и идёт из env.
 
 Поддомены создаются через Hestia (`v-add-web-domain`), затем proxy_pass на `127.0.0.1:3030` / `127.0.0.1:8050`. Поверх Grafana — basic auth в nginx.
 

@@ -65,7 +65,30 @@
 
 ## In progress
 
-- fintech front (@sentry/nuxt).
+- Deploy-фаза (gated). Решения пользователя 2026-05-25:
+  - **Деплой:** ждать завершения D4 (rusaicore/rusaifin checkout'ы были frozen под параллельный D4-чат). Память показывает D4 done (`track_d4_writer_switch_done`) — ждём явного «D4 закончен» / «иди на dev».
+  - **GlitchTip DSN:** создаю сам через API.
+  - **Telegram:** пользователь пришлёт bot token + chat id.
+
+## Deploy-фаза — разведка и план (2026-05-25)
+
+### GlitchTip (prod glitchtip.rusaifin.ru) — состояние
+- API v4.1.5, `/api/0/` → 200.
+- **`enableUserRegistration: false`** — регистрация уже закрыта (Track A TODO «закрыть после first user» — выполнено кем-то).
+- Read-only counts: **users=1, orgs=1, projects=0**. First-user + org уже есть.
+- Следствие: чисто-API создание 6 проектов требует **auth-токен** существующего юзера (креды не читаю) ИЛИ создание через `obs-glitchtip-web ./manage.py` (прод-write, нужен «иди на прод»).
+- План: создать 6 проектов (`rusaicore`, `rusaiauth`, `rusaifin`, `rusaisklad-back`, `fintech-front`, `rusaisklad-front`) в существующей org → забрать DSN из project keys → прописать в `.env` каждого сервиса (gitignored, в файлы/memory не коммичу).
+
+### Scrape networking — решено (см. infra commit)
+- obs-prometheus (bridge) НЕ достаёт `127.0.0.1:80XX` сервисов. Подтверждено на shake (connection refused через 172.17.0.1).
+- Решение: `compose.scrape.yml` (server-only override) подключает obs-prometheus к 6 `*_app-network`; scrape по имени nginx-контейнера:80. Локально override не применяется.
+
+### Telegram — провижининг провалидирован локальным smoke (важная грабля)
+- **Грабля:** Grafana крашлупит, если (а) Telegram bot token ПУСТОЙ (`could not find Bot Token`), или (б) chat id приходит через env-expansion как число (`cannot unmarshal number into ... chatid of type string`) — Grafana re-типизирует раскрытое числовое значение.
+- **Решение (провалидировано):**
+  - `bottoken: "${GF_TELEGRAM_BOT_TOKEN}"` — секрет из env; формат `digits:alnum` остаётся строкой. Непустой placeholder-дефолт в compose (`0000000000:PLACEHOLDER...`) → Grafana всегда стартует; реальный токен из `.env`.
+  - `chatid: "0"` — **захардкожен** в contactpoints.yaml (не секрет). Заменить `"0"` на реальный chat id когда пользователь пришлёт. `GF_TELEGRAM_CHAT_ID` из compose убран.
+- **Локальный smoke зелёный:** Grafana health=200, заприсижено 5 alert rules + Telegram contact point + дашборд `Services overview`. (До фикса Grafana крашлупила — поймано до прода.)
 
 ## Next
 

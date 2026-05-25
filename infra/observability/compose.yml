@@ -147,9 +147,12 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_SERVER_ROOT_URL: ${GF_SERVER_ROOT_URL:-http://localhost:3030}
-      # Telegram alerting (provisioning/alerting/contactpoints.yaml expands these).
-      GF_TELEGRAM_BOT_TOKEN: ${GF_TELEGRAM_BOT_TOKEN:-}
-      GF_TELEGRAM_CHAT_ID: ${GF_TELEGRAM_CHAT_ID:-}
+      # Telegram bot token (secret) for the provisioned contact point. Non-empty placeholder
+      # default: Grafana crash-loops on an EMPTY Telegram token at provisioning time; with a
+      # placeholder it boots healthy and delivery just fails (logged) until a real token is set
+      # in .env. The chat id is NOT secret and is inlined in contactpoints.yaml (Grafana mis-types
+      # an env-expanded numeric chat id as a number and rejects it).
+      GF_TELEGRAM_BOT_TOKEN: ${GF_TELEGRAM_BOT_TOKEN:-0000000000:PLACEHOLDER-set-real-token-in-env}
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
