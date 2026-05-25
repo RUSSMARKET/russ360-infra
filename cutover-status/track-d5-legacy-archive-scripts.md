@@ -1,8 +1,32 @@
 # Track D5 — Legacy archive scripts
 
-**Status:** done
-**Owner chat:** dolgan / 2026-05-24 session
-**Last update:** 2026-05-24
+**Status:** done (narrowed 2026-05-25 for D4 Option A — см. § Narrowing)
+**Owner chat:** dolgan / 2026-05-24 session; narrowed in D4 chat 2026-05-25
+**Last update:** 2026-05-25
+
+## ⚠ Narrowing 2026-05-25 (D4 Option A — anchor tables stay writable)
+
+D4 вскрыл конфликт: `projects` / `project_points` FK-якорят локальные shifts/products/
+inventory, а D7 E2E (`create project → add point`) требует создания локальной anchor-строки
++ `core_*_external_id`. Полная заморозка этих двух таблиц это блокировала. Автор выбрал
+**Вариант A**: морозим только *relationship-данные*, anchor-таблицы остаются read-write.
+
+Новый скоуп триггеров (было 15 → стало **13**):
+- **Полная заморозка (9 триггеров)** — 3 пивота: `project_point_agents`, `project_supports`,
+  `project_regional_directors` (INSERT/UPDATE/DELETE). Без изменений.
+- **Column-guard (4 триггера)** — `project_points.group_leader_id` и
+  `projects.project_manager_id`: BEFORE INSERT (reject non-null) + BEFORE UPDATE
+  (reject change через NULL-safe `<=>`). Таблицы остаются writable для anchor-строк и
+  bridge-колонок; лидер/ПМ теперь Core memberships/assignments.
+- Триггеры `trg_ro_project_points_*` и `trg_ro_projects_*` (полная заморозка) **удалены**;
+  заменены на `trg_guard_project_points_group_leader_id_{ins,upd}` /
+  `trg_guard_projects_project_manager_id_{ins,upd}`.
+
+Local probe (findatabase, temp-таблица): ins_null=ALLOWED, ins_leader=BLOCKED(45000),
+upd_othercol=ALLOWED, upd_leader=BLOCKED(45000), upd null→null=ALLOWED. Синтаксис BEGIN/END
+через `DB::unprepared` валиден на MySQL 8.0.45 (local binlog off).
+`unlock-legacy-tables.sql` обновлён под новый набор. ⚠ **Dev re-dry-run нужен заново** (старый
+dry-run был на 15 триггерах full-freeze) — внести в Track E rehearsal.
 
 Делает legacy-таблицы rusaifin read-only в момент cutover'а через BEFORE-триггеры,
 которые отбивают любые INSERT/UPDATE/DELETE понятным сообщением. После writer-switch
