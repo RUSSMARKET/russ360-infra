@@ -63,6 +63,30 @@
 - **2026-05-25 — rusaicore инструментирован** (commit `10508b5` на `feature/track-b-instrumentation`).
   - Sentry SDK ^4.25, promphp ^2.15. /metrics root-route + RED middleware на api-группе. exceptions counter из report(). APCu в обоих Dockerfile (cli + fpm-alpine). nginx allowlist. unit+feature тесты, полный suite 66 green. Локальный smoke: APCu-агрегация подтверждена (counter/histogram растут между запросами, /metrics себя не считает).
 
+## DEV DEPLOY — в процессе (2026-05-25)
+
+**Готово на dev (shake), верифицировано:**
+- **obs-стек:** `git pull` russ360-infra + `compose.scrape.yml` (obs-prometheus в 6 app-networks) + bot token в `.env`. Grafana healthy, 5 alert rules + Telegram contact + дашборд. **Telegram доставка подтверждена** (тест-сообщение в группу «RSM Infra»).
+- **GlitchTip:** 6 проектов + DSN (ids 1-6). DSN вписаны в `.env` сервисов на shake (не в git).
+- **rusaicore dev:** UP — apcu, метрики в Prometheus (`russ360_http_requests_total{...}`), LOG_CHANNEL=stderr JSON, GlitchTip события (manual+SDK).
+- **rusaiauth dev:** UP — потребовался host `composer install` (auth-app bind-маунтит весь чекаут `./:/var/www/html` → vendor с хоста, не из образа).
+- **rusaisklad_back dev:** UP — apcu, config ок, target UP (app использует vendor из образа, как rusaicore).
+
+**Баги, пойманные и пофикшенные при dev-деплое (закоммичены в dev):**
+1. `apcu_enabled()` fallback — apcu выключен в CLI (`apc.enable_cli=0`) → artisan/queue крашились на APC::__construct при resolve MetricsRegistry. Фикс во всех 4 backend.
+2. rusaiauth `.dockerignore` не исключал `vendor` → `COPY . .` затирал свежий vendor (с sentry) стейлом → package:discover «Integration not found». Добавлен `vendor`.
+3. Grafana boot-safe: пустой Telegram bot token → крашлуп; numeric chatid через env → reject. Bot token из env с placeholder-дефолтом, chatid захардкожен.
+
+**Ключевые различия dev-compose (важно для prod):**
+- rusaicore / rusaisklad_back `app`: vendor **из образа** (бинд только .env/storage/cache) → деплой = build+recreate.
+- rusaiauth `auth-app`: бинд-маунт **всего чекаута** → нужен `composer install` на хосте (vendor с хоста). ⚠️ Проверить, так ли на prod-compose каждого сервиса перед prod-деплоем.
+
+**Осталось на dev:**
+- rusaifin (native php-fpm 8.3, apcu+apc.enabled=On на хосте есть): host `composer install` + `.env` (DSN id3, LOG_CHANNEL=json) + config:clear + fpm reload. Scrape **отложен** (native, нет app-network → нужен отдельный metrics-vhost).
+- fintech / rusaisklad_front: rebuild Nuxt с `@sentry/vue` + `NUXT_PUBLIC_SENTRY_DSN` (ids 5,6).
+
+**Prod-деплой:** ждёт явного «иди на прод». Учесть: per-service bind-mount стратегию (host composer где нужно), rusaifin native (apcu на host prod, Hestia nginx /metrics allowlist, scrape-vhost), DSN с SENTRY_ENVIRONMENT=production.
+
 ## In progress
 
 - Deploy-фаза (gated). Решения пользователя 2026-05-25:
