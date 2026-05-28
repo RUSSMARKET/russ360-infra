@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Роли пользователей платформы Russ360</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm 18mm 14mm; }
+  html { font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif; font-size: 10.5pt; color: #1a1a1a; }
+  body { line-height: 1.45; max-width: 100%; }
+  h1 { font-size: 22pt; margin: 0 0 4pt; color: #0b3d91; border-bottom: 2px solid #0b3d91; padding-bottom: 6pt; }
+  h2 { font-size: 15pt; margin: 22pt 0 8pt; color: #0b3d91; border-bottom: 1px solid #c0c8d4; padding-bottom: 3pt; page-break-after: avoid; }
+  h3 { font-size: 12pt; margin: 14pt 0 4pt; color: #1a3970; page-break-after: avoid; }
+  h4 { font-size: 10.5pt; margin: 8pt 0 2pt; color: #444; }
+  p { margin: 4pt 0; }
+  ul, ol { margin: 4pt 0 8pt 20pt; padding: 0; }
+  li { margin: 1pt 0; }
+  .meta { color: #666; font-size: 9pt; margin-bottom: 14pt; }
+  .meta b { color: #333; }
+  .callout {
+    background: #fff8e1; border-left: 4px solid #ffa726;
+    padding: 8pt 12pt; margin: 10pt 0; font-size: 9.5pt;
+  }
+  .note {
+    background: #e8f4fd; border-left: 4px solid #1976d2;
+    padding: 8pt 12pt; margin: 10pt 0; font-size: 9.5pt;
+  }
+  table { border-collapse: collapse; width: 100%; margin: 8pt 0; font-size: 9.5pt; }
+  table th, table td { border: 1px solid #b0b8c4; padding: 4pt 6pt; text-align: left; vertical-align: top; }
+  table th { background: #eef2f8; color: #1a3970; font-weight: 600; }
+  .roles-table td:nth-child(1) { text-align: center; font-weight: 600; width: 26pt; }
+  .roles-table td:nth-child(3) { text-align: center; width: 32pt; font-variant-numeric: tabular-nums; }
+  .matrix th, .matrix td { text-align: center; font-size: 9pt; padding: 3pt 2pt; }
+  .matrix th:first-child, .matrix td:first-child { text-align: left; font-weight: 600; font-size: 9pt; padding-left: 6pt; padding-right: 6pt; }
+  .matrix th { vertical-align: bottom; }
+  .matrix .rot {
+    writing-mode: vertical-rl; transform: rotate(180deg);
+    white-space: nowrap; height: 80pt; font-weight: 600;
+  }
+  .cell-manage { background: #2e7d32; color: white; font-weight: 600; }
+  .cell-view { background: #fdd835; color: #4e3700; }
+  .cell-own { background: #fb8c00; color: white; }
+  .cell-none { background: #eceff1; color: #888; }
+  .cell-scope { background: #66bb6a; color: white; font-size: 8pt; }
+  .legend { font-size: 9pt; margin-top: 6pt; }
+  .legend span { display: inline-block; padding: 2pt 6pt; margin-right: 6pt; border-radius: 3pt; }
+  .role-card { page-break-inside: avoid; margin-top: 12pt; padding: 6pt 10pt; background: #f7f9fc; border-left: 3px solid #0b3d91; }
+  .role-card h3 { margin-top: 2pt; }
+  .role-card .who { font-style: italic; color: #444; margin-bottom: 4pt; }
+  .role-card .tech { color: #777; font-size: 8.5pt; margin-top: 4pt; font-family: "SF Mono", Consolas, monospace; }
+  .pyramid-wrap { text-align: center; margin: 12pt 0; }
+  .contours-wrap { text-align: center; margin: 12pt 0; }
+  code { background: #f0f2f6; padding: 1pt 4pt; border-radius: 2pt; font-size: 9pt; font-family: "SF Mono", Consolas, monospace; }
+  .toc { background: #f7f9fc; padding: 8pt 14pt; margin: 12pt 0 18pt; border-radius: 4pt; font-size: 10pt; }
+  .toc h3 { margin: 0 0 4pt; color: #0b3d91; border: none; }
+  .toc ol { margin: 4pt 0 0 22pt; }
+  .page-break { page-break-before: always; }
+  .footer { margin-top: 30pt; padding-top: 8pt; border-top: 1px solid #c0c8d4; color: #666; font-size: 8.5pt; }
+</style>
+</head>
+<body>
+
+<h1>Роли пользователей платформы Russ360</h1>
+<div class="meta">
+  <b>Дата составления:</b> 2026-05-28 &nbsp;·&nbsp;
+  <b>Версия системы:</b> post-M2 cutover, Stage 2 in progress &nbsp;·&nbsp;
+  <b>Аудитория:</b> руководство, владельцы продукта
+</div>
+
+<div class="toc">
+  <h3>Содержание</h3>
+  <ol>
+    <li>Зачем этот документ</li>
+    <li>Краткая карта 13 ролей и иерархия полномочий</li>
+    <li>Матрица возможностей: что какая роль может делать</li>
+    <li>Роли подробно — 13 карточек</li>
+    <li>Дополнительные уровни доступа (membership, identity)</li>
+    <li>Где это контролируется в коде (для техлида)</li>
+    <li>Открытые вопросы и каверны</li>
+  </ol>
+</div>
+
+<h2>1. Зачем этот документ</h2>
+<p>Документ отвечает на бизнес-вопросы: <i>кто такой Региональный руководитель</i>, <i>чем он отличается от Руководителя группы</i>, <i>что доступно полевому Агенту, а что нет</i>. Без перечисления API-эндпоинтов и кодов разрешений.</p>
+<p>Глобальные роли работают в основной системе <b>rusaifin</b> (полевые операции, fintech-UI). Внутри Складского сервиса и SSO есть дополнительные уровни доступа — описаны в разделе&nbsp;5.</p>
+
+<h2>2. Краткая карта ролей</h2>
+
+<table class="roles-table">
+<thead><tr><th>№</th><th>Роль</th><th>Уровень<br>(меньше = выше)</th><th>Кто это в жизни</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><b>Администратор</b></td><td>0</td><td>Системный администратор / разработчик платформы</td></tr>
+<tr><td>4</td><td><b>Директор</b></td><td>200</td><td>Директор бизнеса — полный доступ к операциям</td></tr>
+<tr><td>5</td><td><b>Аккаунт-директор</b></td><td>300</td><td>Руководитель аккаунта или направления</td></tr>
+<tr><td>6</td><td><b>Support-руководитель</b></td><td>400</td><td>Руководитель отдела поддержки</td></tr>
+<tr><td>11</td><td><b>Аналитик</b></td><td>401</td><td>Сотрудник аналитики и отчётности (только просмотр)</td></tr>
+<tr><td>12</td><td><b>Бизнес-тренер</b></td><td>401</td><td>Методолог, отвечает за обучение сотрудников</td></tr>
+<tr><td>7</td><td><b>Support-менеджер</b></td><td>500</td><td>Оператор поддержки, обрабатывает заявки</td></tr>
+<tr><td>8</td><td><b>Руководитель проектов</b></td><td>600</td><td>Менеджер конкретного проекта</td></tr>
+<tr><td>9</td><td><b>Региональный руководитель</b></td><td>700</td><td>Руководитель региональной структуры проекта</td></tr>
+<tr><td>10</td><td><b>Руководитель группы</b></td><td>800</td><td>Старший смены / тимлид над агентами на точках</td></tr>
+<tr><td>3</td><td><b>Агент</b></td><td>900</td><td>Полевой сотрудник на торговой точке</td></tr>
+<tr><td>13</td><td><b>Клиент</b></td><td>900</td><td>Внешний клиент платформы</td></tr>
+<tr><td>2</td><td><b>Новый пользователь</b></td><td>999</td><td>Только зарегистрировался, ждёт назначения роли</td></tr>
+</tbody>
+</table>
+
+<h3>Иерархия ролей — визуальная пирамида</h3>
+<div class="pyramid-wrap">
+<svg viewBox="0 0 700 380" width="640" xmlns="http://www.w3.org/2000/svg">
+  <!-- L1 top -->
+  <polygon points="340,20 360,20 380,60 320,60" fill="#7b1fa2"/>
+  <text x="350" y="44" text-anchor="middle" fill="white" font-size="11" font-weight="600">Администратор</text>
+
+  <!-- L2 -->
+  <polygon points="320,60 380,60 415,105 285,105" fill="#1565c0"/>
+  <text x="350" y="86" text-anchor="middle" fill="white" font-size="11" font-weight="600">Директор · Аккаунт-директор</text>
+
+  <!-- L3 -->
+  <polygon points="285,105 415,105 450,150 250,150" fill="#0277bd"/>
+  <text x="350" y="132" text-anchor="middle" fill="white" font-size="11" font-weight="600">Support-руководитель · Аналитик · Бизнес-тренер</text>
+
+  <!-- L4 -->
+  <polygon points="250,150 450,150 485,195 215,195" fill="#00838f"/>
+  <text x="350" y="178" text-anchor="middle" fill="white" font-size="11" font-weight="600">Support-менеджер</text>
+
+  <!-- L5 -->
+  <polygon points="215,195 485,195 520,240 180,240" fill="#2e7d32"/>
+  <text x="350" y="222" text-anchor="middle" fill="white" font-size="11" font-weight="600">Руководитель проектов · Региональный руководитель</text>
+
+  <!-- L5b -->
+  <polygon points="180,240 520,240 555,285 145,285" fill="#558b2f"/>
+  <text x="350" y="268" text-anchor="middle" fill="white" font-size="11" font-weight="600">Руководитель группы</text>
+
+  <!-- L6 base -->
+  <polygon points="145,285 555,285 590,330 110,330" fill="#ef6c00"/>
+  <text x="350" y="313" text-anchor="middle" fill="white" font-size="11" font-weight="600">Агент · Клиент</text>
+
+  <!-- L7 -->
+  <polygon points="110,330 590,330 625,375 75,375" fill="#9e9e9e"/>
+  <text x="350" y="358" text-anchor="middle" fill="white" font-size="11" font-weight="600">Новый пользователь (без прав)</text>
+
+  <!-- Side labels -->
+  <text x="60" y="44" font-size="9" fill="#666">вес 0</text>
+  <text x="60" y="222" font-size="9" fill="#666">вес 600–700</text>
+  <text x="60" y="358" font-size="9" fill="#666">вес 999</text>
+
+  <!-- Arrow -->
+  <line x1="660" y1="20" x2="660" y2="375" stroke="#999" stroke-width="1.5"/>
+  <polygon points="656,20 664,20 660,8" fill="#999"/>
+  <text x="668" y="200" font-size="9" fill="#666" transform="rotate(90 668 200)">меньше полномочий →</text>
+</svg>
+</div>
+
+<h2 class="page-break">3. Матрица возможностей</h2>
+<p>Кто что может делать с основными функциональными областями платформы. Это <b>проектное намерение</b> — у некоторых функций фактический контроль ослаблен (см. раздел 7).</p>
+
+<table class="matrix">
+<thead>
+<tr>
+  <th></th>
+  <th class="rot">Сотрудники</th>
+  <th class="rot">Проекты</th>
+  <th class="rot">Точки</th>
+  <th class="rot">Заявки</th>
+  <th class="rot">Клиенты</th>
+  <th class="rot">Обучение</th>
+  <th class="rot">Документы</th>
+  <th class="rot">Регистрация</th>
+  <th class="rot">Продукты</th>
+  <th class="rot">Свои данные</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>Администратор</td>
+  <td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-none">—</td>
+</tr>
+<tr>
+  <td>Директор</td>
+  <td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-none">—</td>
+</tr>
+<tr>
+  <td>Аккаунт-директор</td>
+  <td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-none">—</td>
+</tr>
+<tr>
+  <td>Support-руководитель</td>
+  <td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-none">—</td>
+</tr>
+<tr>
+  <td>Аналитик</td>
+  <td class="cell-view">вид</td><td class="cell-view">вид</td><td class="cell-view">вид</td><td class="cell-view">вид</td><td class="cell-view">вид</td><td class="cell-view">вид</td><td class="cell-view">вид</td><td class="cell-none">—</td><td class="cell-view">вид</td><td class="cell-none">—</td>
+</tr>
+<tr>
+  <td>Бизнес-тренер</td>
+  <td class="cell-view">вид</td><td class="cell-none">—</td><td class="cell-none">—</td><td class="cell-none">—</td><td class="cell-none">—</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-none">—</td><td class="cell-none">—</td><td class="cell-none">—</td>
+</tr>
+<tr>
+  <td>Support-менеджер</td>
+  <td class="cell-manage">упр</td><td class="cell-view">вид</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-view">вид</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-none">—</td>
+</tr>
+<tr>
+  <td>Руководитель проектов</td>
+  <td class="cell-scope">упр / в проекте</td><td class="cell-scope">упр / своё</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-view">вид</td><td class="cell-view">вид</td><td class="cell-none">—</td><td class="cell-manage">упр</td><td class="cell-none">—</td>
+</tr>
+<tr>
+  <td>Региональный рук-ль</td>
+  <td class="cell-scope">упр / в проекте</td><td class="cell-scope">упр / своё</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-manage">упр</td><td class="cell-view">вид</td><td class="cell-view">вид</td><td class="cell-none">—</td><td class="cell-view">вид</td><td class="cell-none">—</td>
+</tr>
+<tr>
+  <td>Руководитель группы</td>
+  <td class="cell-scope">упр / в группе</td><td class="cell-none">—</td><td class="cell-scope">свои точки</td><td class="cell-view">вид</td><td class="cell-view">вид</td><td class="cell-view">вид</td><td class="cell-view">вид</td><td class="cell-none">—</td><td class="cell-none">—</td><td class="cell-none">—</td>
+</tr>
+<tr>
+  <td>Агент</td>
+  <td class="cell-none">—</td><td class="cell-none">—</td><td class="cell-own">свои</td><td class="cell-own">свои</td><td class="cell-own">свои</td><td class="cell-view">вид</td><td class="cell-view">вид</td><td class="cell-none">—</td><td class="cell-none">—</td><td class="cell-own">да</td>
+</tr>
+<tr>
+  <td>Клиент</td>
+  <td class="cell-none">—</td><td class="cell-none">—</td><td class="cell-none">—</td><td class="cell-none">—</td><td class="cell-own">свои</td><td class="cell-none">—</td><td class="cell-view">вид</td><td class="cell-none">—</td><td class="cell-none">—</td><td class="cell-own">да</td>
+</tr>
+<tr>
+  <td>Новый пользователь</td>
+  <td class="cell-none">—</td><td class="cell-none">—</td><td class="cell-none">—</td><td class="cell-none">—</td><td class="cell-none">—</td><td class="cell-none">—</td><td class="cell-none">—</td><td class="cell-none">—</td><td class="cell-none">—</td><td class="cell-none">—</td>
+</tr>
+</tbody>
+</table>
+
+<div class="legend">
+<span class="cell-manage">упр</span> Управление (создание / редактирование / удаление)
+<span class="cell-view">вид</span> Только просмотр
+<span class="cell-scope">в проекте</span> Управление только в своих проектах / группе
+<span class="cell-own">свои</span> Только свои собственные данные
+<span class="cell-none">—</span> Нет доступа
+</div>
+
+<h2 class="page-break">4. Роли подробно</h2>
+
+<div class="role-card">
+  <h3>1. Администратор</h3>
+  <p class="who">Разработчик или владелец платформы — единственная роль с полным неограниченным доступом.</p>
+  <h4>За что отвечает</h4>
+  <ul>
+    <li>Полный доступ ко всем разделам, всем проектам, всем сотрудникам</li>
+    <li>Управление ролями пользователей (повышение, понижение, активация новых)</li>
+    <li>Системные настройки</li>
+    <li>Доступ к истории операций (audit log)</li>
+    <li>Обходит все проверки видимости и фильтры</li>
+  </ul>
+  <h4>Что НЕ может</h4>
+  <ul><li>Ограничений нет</li></ul>
+  <p class="tech">RoleEnum::ADMIN (role_id=1), hierarchy=0</p>
+</div>
+
+<div class="role-card">
+  <h3>2. Директор</h3>
+  <p class="who">Топ-руководитель бизнеса. Полные операционные права, кроме изменения ролей и системных настроек.</p>
+  <h4>За что отвечает</h4>
+  <ul>
+    <li>Видит <b>всех сотрудников</b> платформы (без фильтра по проекту)</li>
+    <li>Управление всеми проектами и точками</li>
+    <li>Управление всеми заявками, клиентами, продуктами</li>
+    <li>Управление онбордингом новых сотрудников (заявки на регистрацию)</li>
+    <li>Управление обучением и документами</li>
+    <li>Управление штрафами и компенсациями (по дизайну, см. каверны)</li>
+  </ul>
+  <h4>Что НЕ может</h4>
+  <ul>
+    <li>Не управляет ролями и правами пользователей напрямую (только Администратор)</li>
+    <li>Не имеет доступа к чисто техническим системным настройкам</li>
+  </ul>
+  <p class="tech">RoleEnum::DIRECTOR (role_id=4), hierarchy=200</p>
+</div>
+
+<div class="role-card">
+  <h3>3. Аккаунт-директор</h3>
+  <p class="who">Руководитель направления или отдельного крупного аккаунта. Близок по объёму прав к Директору.</p>
+  <h4>За что отвечает</h4>
+  <ul>
+    <li>Видит всех сотрудников</li>
+    <li>Управление всеми проектами, точками, клиентами</li>
+    <li>Управление заявками и регистрацией новых сотрудников</li>
+    <li>Управление продуктами, штрафами, компенсациями, программой «приведи друга» (по дизайну)</li>
+    <li>Управление документами и обучением</li>
+  </ul>
+  <h4>Что НЕ может</h4>
+  <ul>
+    <li>Не управляет инвентарём (складские операции — не его зона)</li>
+    <li>Не управляет ролями и системой</li>
+    <li>Не имеет полного доступа к истории изменений (только просмотр)</li>
+  </ul>
+  <p class="tech">RoleEnum::ACCOUNT_DIRECTOR (role_id=5), hierarchy=300</p>
+</div>
+
+<div class="role-card">
+  <h3>4. Support-руководитель</h3>
+  <p class="who">Руководитель отдела клиентской / полевой поддержки.</p>
+  <h4>За что отвечает</h4>
+  <ul>
+    <li>Видит всех сотрудников</li>
+    <li>Управление сотрудниками, заявками, проектами, точками</li>
+    <li>Управление клиентами и продуктами</li>
+    <li>Управление инвентарём (по дизайну)</li>
+    <li>Управление обучением и документами</li>
+    <li>Управление онбордингом, чатами и задачами команды</li>
+  </ul>
+  <h4>Что НЕ может</h4>
+  <ul>
+    <li>Не управляет штрафами и компенсациями</li>
+    <li>Не управляет программой «приведи друга»</li>
+    <li>Не имеет доступа к системным настройкам и ролям</li>
+  </ul>
+  <p class="tech">RoleEnum::SUPPORT_SUPERVISOR (role_id=6), hierarchy=400</p>
+</div>
+
+<div class="role-card">
+  <h3>5. Аналитик</h3>
+  <p class="who">Read-only роль для построения отчётности и анализа данных по всей платформе.</p>
+  <h4>За что отвечает</h4>
+  <ul>
+    <li>Видит всех сотрудников</li>
+    <li>Просмотр всех проектов, точек, заявок, клиентов</li>
+    <li>Просмотр всех штрафов, компенсаций, приглашений</li>
+    <li>Просмотр обучения и документов (любых)</li>
+    <li>Просмотр истории изменений</li>
+    <li>Просмотр планов и смен</li>
+  </ul>
+  <h4>Что НЕ может</h4>
+  <ul>
+    <li>Ничего <b>создавать, изменять или удалять</b> (только <code>*.get</code> permissions)</li>
+    <li>Не отправляет уведомления, не создаёт задачи</li>
+  </ul>
+  <p class="tech">RoleEnum::ANALYST (role_id=11), hierarchy=401</p>
+</div>
+
+<div class="role-card">
+  <h3>6. Бизнес-тренер</h3>
+  <p class="who">Методолог, отвечающий за обучение сотрудников и материалы.</p>
+  <h4>За что отвечает</h4>
+  <ul>
+    <li>Управление учебными материалами (создание, публикация, обновление)</li>
+    <li>Управление документами (любыми, для распространения сотрудникам)</li>
+    <li>Просмотр списка сотрудников (для назначения обучения)</li>
+    <li>Общение с сотрудниками через чаты</li>
+  </ul>
+  <h4>Что НЕ может</h4>
+  <ul>
+    <li>Не управляет проектами, сотрудниками, заявками</li>
+    <li>Не видит клиентов, продукты, штрафы</li>
+    <li>Узкоспециализированная роль — фокус только на обучении</li>
+  </ul>
+  <p class="tech">RoleEnum::BUSINESS_COACH (role_id=12), hierarchy=401</p>
+</div>
+
+<div class="role-card">
+  <h3>7. Support-менеджер</h3>
+  <p class="who">Линейный сотрудник поддержки — обрабатывает заявки и общается с клиентами / полевиками.</p>
+  <h4>За что отвечает</h4>
+  <ul>
+    <li>Видит всех сотрудников</li>
+    <li>Обработка всех заявок (приём, маршрутизация, закрытие)</li>
+    <li>Управление клиентами, продуктами, точками</li>
+    <li>Управление онбордингом (регистрация новых)</li>
+    <li>Управление инвентарём (по дизайну)</li>
+    <li>Управление чатами и задачами</li>
+  </ul>
+  <h4>Что НЕ может</h4>
+  <ul>
+    <li>Не управляет проектами (создание / закрытие — не его зона)</li>
+    <li>Не управляет обучением (только просмотр)</li>
+    <li>Не управляет штрафами и компенсациями</li>
+    <li>Нет доступа к истории и системным настройкам</li>
+  </ul>
+  <p class="tech">RoleEnum::SUPPORT_MANAGER (role_id=7), hierarchy=500</p>
+</div>
+
+<div class="role-card">
+  <h3>8. Руководитель проектов</h3>
+  <p class="who">Менеджер, отвечающий за один или несколько конкретных проектов.</p>
+  <h4>За что отвечает</h4>
+  <ul>
+    <li>Управление <b>своими</b> проектами (где он состоит в Core membership)</li>
+    <li>Управление сотрудниками и точками своих проектов</li>
+    <li>Управление клиентами, продуктами, инвентарём в своих проектах</li>
+    <li>Управление планами и сменами</li>
+    <li>Управление чатами и задачами проекта</li>
+    <li>Обработка всех заявок</li>
+  </ul>
+  <h4>Что НЕ может</h4>
+  <ul>
+    <li>Не видит сотрудников и данные <b>чужих</b> проектов</li>
+    <li>Не управляет обучением и документами (только просмотр)</li>
+    <li>Не управляет онбордингом новых сотрудников платформы</li>
+    <li>Не управляет штрафами и компенсациями</li>
+  </ul>
+  <p class="tech">RoleEnum::PROJECT_MANAGER (role_id=8), hierarchy=600</p>
+</div>
+
+<div class="role-card">
+  <h3>9. Региональный руководитель</h3>
+  <p class="who">Руководитель региональной части проекта (например, «Юг» внутри федеральной розничной сети).</p>
+  <h4>За что отвечает</h4>
+  <ul>
+    <li>Управление сотрудниками и точками в своих проектах</li>
+    <li>Управление клиентами и продуктами в своей зоне</li>
+    <li>Управление планами и сменами</li>
+    <li>Обработка заявок своих проектов</li>
+    <li>Чаты и задачи команды</li>
+  </ul>
+  <h4>Что НЕ может</h4>
+  <ul>
+    <li>Не видит сотрудников / проекты вне своих Core memberships</li>
+    <li>Не управляет обучением и документами (только просмотр)</li>
+    <li>Не управляет онбордингом</li>
+  </ul>
+  <div class="note">«Регион» как явная сущность в системе на 2026-05-28 <b>отсутствует</b> — региональность реализована через привязку к точкам / проектам. См. <code>docs/russ360-audit-2026-05-18.md</code> и ADR-0006.</div>
+  <p class="tech">RoleEnum::REGIONAL_DIRECTOR (role_id=9), hierarchy=700</p>
+</div>
+
+<div class="role-card">
+  <h3>10. Руководитель группы</h3>
+  <p class="who">Старший смены / тимлид над агентами на конкретных торговых точках.</p>
+  <h4>За что отвечает</h4>
+  <ul>
+    <li>Управление своей группой агентов (на точках, где он назначен ролью <code>leader</code>)</li>
+    <li>Просмотр заявок группы</li>
+    <li>Управление планами смен</li>
+    <li>Просмотр своих точек и клиентов на них</li>
+    <li>Чаты с командой</li>
+  </ul>
+  <h4>Что НЕ может</h4>
+  <ul>
+    <li>Не видит сотрудников вне своих точек</li>
+    <li>Не управляет проектами и точками (создание / закрытие)</li>
+    <li>Не управляет продуктами и инвентарём</li>
+    <li>Не управляет обучением (только просмотр)</li>
+  </ul>
+  <p class="tech">RoleEnum::GROUP_LEADER (role_id=10), hierarchy=800</p>
+</div>
+
+<div class="role-card">
+  <h3>11. Агент</h3>
+  <p class="who">Полевой сотрудник на торговой точке — основной массив пользователей платформы.</p>
+  <h4>За что отвечает</h4>
+  <ul>
+    <li>Видит свои назначенные точки (где у него assignment <code>agent</code> в Core)</li>
+    <li>Видит свои смены и планы</li>
+    <li>Просматривает своих клиентов (которые работают на его точках)</li>
+    <li>Просматривает обучение и материалы</li>
+    <li>Получает уведомления</li>
+    <li>Просматривает свои заявки</li>
+  </ul>
+  <h4>Что НЕ может</h4>
+  <ul>
+    <li>Не видит других сотрудников и их данные</li>
+    <li>Не управляет ничем (всё в режиме просмотра <b>своих</b> данных)</li>
+    <li>Не видит финансовые данные других агентов</li>
+  </ul>
+  <p class="tech">RoleEnum::AGENT (role_id=3), hierarchy=900</p>
+</div>
+
+<div class="role-card">
+  <h3>12. Клиент</h3>
+  <p class="who">Внешний клиент платформы — не сотрудник, конечный получатель услуг (например, бизнес-заказчик BAT-проектов).</p>
+  <h4>За что отвечает</h4>
+  <ul>
+    <li>Просмотр своей карточки клиента</li>
+    <li>Просмотр документов, доступных клиенту</li>
+    <li>Получение уведомлений</li>
+    <li>Просмотр чатов с поддержкой</li>
+  </ul>
+  <h4>Что НЕ может</h4>
+  <ul>
+    <li>Не видит внутреннего функционала (сотрудников, проектов, отчётов)</li>
+    <li>Не управляет ничем — полностью изолирован от внутренней операционной среды</li>
+  </ul>
+  <p class="tech">RoleEnum::CLIENT (role_id=13), hierarchy=900</p>
+</div>
+
+<div class="role-card">
+  <h3>13. Новый пользователь</h3>
+  <p class="who">Пользователь, прошедший базовую регистрацию, но ещё не получивший рабочую роль. Промежуточный статус.</p>
+  <h4>За что отвечает</h4>
+  <ul>
+    <li>Может залогиниться и заполнить анкету для активации</li>
+    <li>Ждёт назначения нормальной роли от Support / HR</li>
+  </ul>
+  <h4>Что НЕ может</h4>
+  <ul>
+    <li>Не имеет вообще никаких прав в системе</li>
+    <li>Не видит ни одного раздела платформы</li>
+    <li>Не может работать до перехода в роль Агент / Клиент / иное</li>
+  </ul>
+  <p class="tech">RoleEnum::REGISTERED (role_id=2), hierarchy=999</p>
+</div>
+
+<h2 class="page-break">5. Дополнительные уровни доступа</h2>
+
+<p>Глобальная роль rusaifin — основная, но не единственная. На каждого пользователя могут накладываться ещё два уровня:</p>
+
+<div class="contours-wrap">
+<svg viewBox="0 0 720 280" width="680" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 z" fill="#555"/>
+    </marker>
+  </defs>
+
+  <!-- User box -->
+  <rect x="280" y="20" width="160" height="50" rx="6" fill="#0b3d91"/>
+  <text x="360" y="44" text-anchor="middle" fill="white" font-size="12" font-weight="600">Пользователь</text>
+  <text x="360" y="60" text-anchor="middle" fill="white" font-size="9">проверка при каждом запросе</text>
+
+  <!-- L1 Global -->
+  <rect x="40" y="120" width="200" height="120" rx="6" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+  <text x="140" y="142" text-anchor="middle" fill="#0b3d91" font-size="11" font-weight="700">1. Глобальная роль</text>
+  <text x="140" y="158" text-anchor="middle" fill="#1565c0" font-size="9">rusaifin</text>
+  <text x="140" y="180" text-anchor="middle" fill="#333" font-size="9">Одна из 13 ролей.</text>
+  <text x="140" y="194" text-anchor="middle" fill="#333" font-size="9">Определяет ОБЩИЙ объём</text>
+  <text x="140" y="208" text-anchor="middle" fill="#333" font-size="9">прав в основной системе.</text>
+  <text x="140" y="226" text-anchor="middle" fill="#555" font-size="8" font-style="italic">role_id в БД</text>
+
+  <!-- L2 Membership -->
+  <rect x="260" y="120" width="200" height="120" rx="6" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="360" y="142" text-anchor="middle" fill="#1b5e20" font-size="11" font-weight="700">2. Membership-роль</text>
+  <text x="360" y="158" text-anchor="middle" fill="#2e7d32" font-size="9">rusaisklad (склад) per-project</text>
+  <text x="360" y="180" text-anchor="middle" fill="#333" font-size="9">admin / manager /</text>
+  <text x="360" y="194" text-anchor="middle" fill="#333" font-size="9">supervisor / promoter.</text>
+  <text x="360" y="208" text-anchor="middle" fill="#333" font-size="9">Действует ВНУТРИ проекта.</text>
+  <text x="360" y="226" text-anchor="middle" fill="#555" font-size="8" font-style="italic">project_memberships</text>
+
+  <!-- L3 Identity -->
+  <rect x="480" y="120" width="200" height="120" rx="6" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="580" y="142" text-anchor="middle" fill="#bf360c" font-size="11" font-weight="700">3. Identity-роль</text>
+  <text x="580" y="158" text-anchor="middle" fill="#ef6c00" font-size="9">rusaiauth (SSO)</text>
+  <text x="580" y="180" text-anchor="middle" fill="#333" font-size="9">platform_admin / regular_user</text>
+  <text x="580" y="194" text-anchor="middle" fill="#333" font-size="9">support / auditor.</text>
+  <text x="580" y="208" text-anchor="middle" fill="#333" font-size="9">Для аудита и поддержки SSO.</text>
+  <text x="580" y="226" text-anchor="middle" fill="#555" font-size="8" font-style="italic">global_roles</text>
+
+  <!-- Arrows from user -->
+  <line x1="320" y1="70" x2="180" y2="115" stroke="#555" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <line x1="360" y1="70" x2="360" y2="115" stroke="#555" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <line x1="400" y1="70" x2="540" y2="115" stroke="#555" stroke-width="1.3" marker-end="url(#arrow)"/>
+
+  <!-- Footer note -->
+  <text x="360" y="270" text-anchor="middle" fill="#555" font-size="9" font-style="italic">Все три уровня действуют одновременно — фактический доступ = пересечение разрешений всех контуров</text>
+</svg>
+</div>
+
+<h3>Membership-роли в Складском сервисе</h3>
+<p>Действуют <b>внутри одного проекта</b> поверх глобальной роли. Один сотрудник может иметь разные membership-роли в разных проектах (например, <code>admin</code> в одном проекте и <code>promoter</code> в другом).</p>
+<table>
+<thead><tr><th>Код</th><th>Назначение</th></tr></thead>
+<tbody>
+<tr><td><code>admin</code></td><td>Полный доступ ко всем складским операциям проекта</td></tr>
+<tr><td><code>manager</code></td><td>Управление операциями (приходы, расходы, инвентаризации)</td></tr>
+<tr><td><code>supervisor</code></td><td>Контроль операций, частичное управление</td></tr>
+<tr><td><code>promoter</code></td><td>Полевая роль на точке — выполнение операций по складу</td></tr>
+</tbody>
+</table>
+
+<h3>Identity-роли в системе единого входа</h3>
+<p>Техническая классификация для аудита и поддержки SSO. На функциональный доступ не влияет — только на операции внутри SSO и логирование.</p>
+<table>
+<thead><tr><th>Код</th><th>Назначение / маппинг</th></tr></thead>
+<tbody>
+<tr><td><code>platform_admin</code></td><td>Маппится из rusaifin-ролей: Администратор, Директор, Аккаунт-директор</td></tr>
+<tr><td><code>regular_user</code></td><td>Основная масса пользователей: Агент, Руководители, Клиент, Новый пользователь</td></tr>
+<tr><td><code>support</code></td><td>Support-менеджер, Support-руководитель</td></tr>
+<tr><td><code>auditor</code></td><td>Резервная роль, на сегодня практически не используется</td></tr>
+</tbody>
+</table>
+
+<h2 class="page-break">6. Где это контролируется (для техлида)</h2>
+<ul>
+  <li><b>Перечень ролей:</b> <code>rusaifin/app/Enum/RoleEnum.php</code> + <code>database/seeders/MakeDefaultRoles.php</code></li>
+  <li><b>Назначение прав ролям:</b> <code>database/seeders/System/AssignDefaultPermissionsSeeder.php</code></li>
+  <li><b>Активные permission-slug'и в БД:</b> <code>database/seeders/RolePermissionsSeeder.php</code></li>
+  <li><b>Кто кого видит:</b> <code>app/Services/Staff/StaffVisibilityScopeService.php</code>. Метод <code>isPrivilegedViewer()</code> определяет 5 ролей с неограниченным обзором: ADMIN, DIRECTOR, ACCOUNT_DIRECTOR, SUPPORT_SUPERVISOR, ANALYST</li>
+  <li><b>Привязка к проектам:</b> прочие роли (PROJECT_MANAGER, REGIONAL_DIRECTOR, GROUP_LEADER, AGENT, SUPPORT_MANAGER) — через Core <code>project_memberships</code></li>
+  <li><b>Привязка к точкам:</b> GROUP_LEADER (assignment role=<code>leader</code>), AGENT (assignment role=<code>agent</code>) — через Core <code>operational_location_assignments</code></li>
+  <li><b>Middleware на роутах:</b> <code>CheckPermission::class.':&lt;slug&gt;'</code> в <code>routes/api.php</code> и <code>routes/web.php</code></li>
+  <li><b>Прямые проверки в контроллерах:</b> ~112 мест читают <code>$user-&gt;role_id</code> напрямую (см. аудит <code>docs/russ360-audit-2026-05-18.md</code>, P1)</li>
+</ul>
+
+<h2>7. Открытые вопросы и каверны</h2>
+
+<div class="callout">
+<b>Главная каверна:</b> в коде есть разрыв между декларацией прав ролям и реальным enforcement'ом. Описания возможностей в этом документе соответствуют <b>проектному намерению</b>, фактический контроль может быть слабее.
+</div>
+
+<ol>
+<li><b>Разрыв «декларация vs реальность» в permissions.</b> В <code>AssignDefaultPermissionsSeeder.php</code> ролям списываются права на сущности, которых нет в таблице <code>permissions</code> (<code>shifts.*</code>, <code>plans.*</code>, <code>chats.*</code>, <code>tasks.*</code>, <code>notifications.*</code>, <code>inventory.*</code>, <code>penalties.*</code>, <code>compensations.*</code>, <code>bringfriend.*</code>, <code>product.*</code>, <code>role.*</code>, <code>settings.*</code>, <code>history.*</code>). В коде стоит <code>?? null</code> → эти permission-id тихо отфильтровываются. По факту в БД активны только: <code>client.*</code>, <code>staff.*</code>, <code>application.*</code>, <code>registration.*</code>, <code>education.*</code>, <code>docs.*</code>, <code>project.*</code>, <code>point.*</code>, <code>administration.management</code>.</li>
+
+<li><b>Двойной контур авторизации в коде.</b> Часть проверок — через permission-slug в middleware (<code>CheckPermission</code>), часть — через прямые сравнения <code>role_id == X</code> в ~112 контроллерах. Это значит, что изменение прав через таблицу <code>role_permission</code> не покроет всех ограничений — часть зашита в код.</li>
+
+<li><b>rusaicore без enforcement.</b> Микросервис справочников (<code>rusaicore</code>) на сегодня не проверяет роли вообще, полагается на upstream-rusaifin. Любой клиент с валидным OAuth-токеном может вызывать его эндпоинты.</li>
+
+<li><b>Региональность не моделируется явно.</b> Роль «Региональный руководитель» работает через привязку к точкам, а не через сущность «Регион». ADR-0006 фиксирует понятие «Территория» (операционная зона между Project и OperationalLocation), но в коде на 2026-05-28 ещё не реализован.</li>
+
+<li><b>Отсутствующие роли в RoleEnum.</b> Бизнес-роли «Мерчандайзер» и «Супервайзер» исторически были в старых сидерах rusaifin, но в текущем <code>RoleEnum.php</code> их нет. На прод-данных их использовать нельзя.</li>
+
+<li><b>Membership-роли sklad не покрыты глобальной таблицей permissions.</b> Контроль на стороне rusaisklad_back делается через собственный enum, ограничения зашиты в бизнес-логику складских контроллеров (нет единого decision-point).</li>
+</ol>
+
+<div class="footer">
+<b>Ответственный за актуализацию:</b> при изменении <code>RoleEnum.php</code>, <code>MakeDefaultRoles.php</code> или <code>AssignDefaultPermissionsSeeder.php</code> синхронизировать карту и описания ролей с кодом.<br>
+<b>Источник:</b> <code>docs/roles-and-capabilities.md</code> (markdown-исходник). Этот HTML/PDF — производная для печати и рассылки.
+</div>
+
+</body>
+</html>
