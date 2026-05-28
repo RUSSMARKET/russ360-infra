@@ -1,131 +1,136 @@
 # Track F — Production Cutover runbook
 
-**Status:** 📋 READY (составлен из Track E dev-rehearsal 2026-05-25). НЕ запускался.
-**Источник:** Track E (`track-e-dev-rehearsal.md`) — полный прогон на restored prod-dump, F4-F11 найдены+исправлены.
-**Правило:** PROD. Каждый шаг — статус в Telegram «RSM Infra» + в этот файл. На каждый шаг ждать «иди».
+**Status:** 📋 READY — обновлён 2026-05-28 под фактическое состояние (dev-рехёрсал + BAT prod-mode + perf-фиксы).
+**Источник:** Track E dev-rehearsal + сессия 2026-05-28 (полный прогон на restored prod-dump: код, gmp, D5, BAT майский ре-сид, perf-фиксы — зелёный).
+**Правило:** PROD, необратимо на живых данных. Каждый шаг — статус в Telegram «RSM Infra» + в этот файл. На каждый шаг ждать «иди».
 
 ---
 
-## 🧭 ГДЕ ЖИВУТ ФИКСЫ (критично для merge-стратегии Track F)
+## 🧭 BRANCH-СТРАТЕГИЯ — `dev → main` (НЕ `cutover-final→main`)
 
-Track E-фиксы лежат на **`dev`** (НЕ на `cutover-final`!). Merge `cutover-final→main` их НЕ принесёт. Перед окном
-довести cutover-final ДО состояния dev одним из путей:
-- **gmp (F10):** Dockerfile, отдельные коммиты — rusaicore `07cabc2`, rusaisklad_back `c02c1cd`. Dockerfile есть и на main
-  → можно cherry-pick на cutover-final ЛИБО задеплоить на main pre-window независимо.
-- **chunk=50 (F11):** rusaifin `9f5ffad` (3 gateway + тест). Эти gateway — D2-код (на main их НЕТ до cutover) →
-  **обязан** ехать через cutover-final: cherry-pick `9f5ffad` на cutover-final.
-- **StaffService merge-резолв (F2/F3):** в dev merge-коммите `0b226ee` (StaffService.php + 2 новых метода в
-  StaffVisibilityScopeService.php). Извлечь diff и закоммитить на cutover-final ОТДЕЛЬНЫМ коммитом, либо реплеить при merge в main.
+Вся валидированная работа лежит на **`dev`**: cutover-final (D-трэки) + Track-E фиксы (gmp F10 / chunk=50 F11 / StaffService-резолв F2-F3 `0b226ee`) + Macallan (`fact_metric_key` shift/reporting) + BAT майские сидеры + 3 perf-фикса этой сессии. Поэтому прод-мердж = **`dev → main` во всех 5 репах** (rusaiauth, rusaicore, rusaifin, rusaisklad_back, rusaisklad_front).
 
-**Рекомендация:** ДО окна привести `cutover-final` = валидированному dev-состоянию (cherry-pick gmp+chunk+резолв),
-тогда `cutover-final→main` чистый. Иначе — реплеить резолв StaffService + cherry-pick gmp/chunk в окне (дольше, рискованнее).
-Merge-стратегию для main проанализировать как для dev (`track-e-prep-merge-strategy.md`): main мог получить Macallan `81b7404`.
+- **Конфликты `dev→main` (проверено 2026-05-28): ТОЛЬКО Dockerfile'ы** — резолв = union (gmp + apcu/obs):
+  - rusaicore: `Dockerfile` + `docker/Dockerfile`
+  - rusaisklad_front: `Dockerfile.front.dev`
+  - rusaiauth / rusaifin / rusaisklad_back: чисто.
+- `main` опережает dev на 3-11 коммитов (obs/deploy-хардненинг уехал прямо в прод) — merge их **сохраняет** (это не потеря).
 
-## ⚠️ PRE-WINDOW PREREQUISITES (сделать ДО окна — иначе окно сорвётся)
+**Perf-фиксы (едут через dev→main, уже на dev):**
+- N+1 attachment в getStaff → батч `membershipIndexByEmployee` — rusaifin `d0889f8` (admin staff 6.6с→0.33с).
+- detail-relations убраны из списка staff/project — rusaifin `e0990bc` (3.46МБ→1.28МБ).
+- per_page для bulk-чтений: rusaicore `719c0bf` (cap 100→2000) + rusaifin `5e95896` (assignments per_page=2000) — staff/project 4.0с→1.0с, 99 Core-запросов→5.
 
-Track E доказал: без этих шагов деплой падает. Все — отдельными действиями до cutover-окна.
+## ⚠️ PRE-WINDOW PREREQUISITES (ДО окна)
 
-1. **gmp на prod (F10 — иначе 500 на тяжёлых страницах).** Dockerfile-фикс (`gmp`) уже в dev: rusaicore `07cabc2`,
-   rusaisklad_back `c02c1cd` (app-base stage в `docker/Dockerfile` → покрывает app-prod). **Должен попасть на `main`**
-   (merge cutover-final→main принесёт его, ИЛИ отдельный pre-window deploy). После деплоя prod-образов проверить:
-   `docker exec rusaicore_back_prod-app-1 php -r 'var_dump(extension_loaded("gmp"));'` → true.
-   rusaifin (host php8.3) gmp НЕ нужен (валидирует RS256 не через web-token, быстро).
-2. **Prod rusaifin checkout — проверить дивергенцию (F4).** Dev-чекаут разошёлся клубком пустых merge-коммитов →
-   ff-pull падал. Проверить prod: `cd /home/fintech/web/server.rusaifin.ru/public_html && git fetch && git log --oneline origin/main..HEAD`.
-   Если есть локальные коммиты без уникального кода (`git diff <merge-base>..HEAD` пусто) → `reset --hard origin/main`
-   (prod fin на ветке `master`, tracking origin/main — см. [[infra_map]]). **Под владельцем fintech.**
-3. **Prod root-owned dirs (F5).** `database/migrations/cutover/` + `database/scripts/` на prod fin почти наверняка
-   `root:root` → git pull/reset под fintech упадёт `Permission denied`. **Pre-step:**
-   `chown -R fintech:fintech /home/fintech/web/server.rusaifin.ru/public_html/database/migrations/cutover /home/fintech/web/server.rusaifin.ru/public_html/database/scripts`.
-4. **composer на prod (F6).** Committed `composer.lock` требует PHP 8.4 (`symfony/options-resolver` через sentry),
-   host rusaifin = 8.3 → `composer install` падает. `vendor/` уже рабочий → достаточно
-   `composer dump-autoload -o --ignore-platform-reqs` (новые классы cutover'а). core/sklad — в контейнере php8.4, install ок при rebuild.
-5. **Dump'ы свежие (<2ч)**, reconcile orphans=0 (см. §smoke), Phase 0 baseline накоплен, Phase 1 (Track C) закрыт.
-6. **StaffService merge-резолв подготовлен (F2/F3).** merge cutover-final→main даст конфликт `app/Services/Staff/StaffService.php`
-   (Macallan `81b7404` × D2). Резолв уже выполнен и валидирован в dev (см. ниже §T0+15). Лучше **закоммитить резолв в
-   cutover-final ДО окна** (тогда merge в main чистый), либо реплеить по dev-коммиту `0b226ee`.
+1. **gmp на prod (F10).** В Dockerfile rusaicore+rusaisklad_back (app-base stage). После rebuild prod-образов: `docker exec rusaicore_back_prod-app-1 php -r 'var_dump(extension_loaded("gmp"));'` → true. rusaifin (host php8.3) gmp НЕ нужен.
+2. **Prod rusaifin checkout — дивергенция (F4).** `cd /home/fintech/web/server.rusaifin.ru/public_html && git fetch && git log --oneline origin/main..HEAD`. Если локальные пустые merge-коммиты → `reset --hard origin/main` под `fintech`. (prod fin на ветке `master`, tracking origin/main.)
+3. **Prod root-owned dirs (F5).** `chown -R fintech:fintech .../database/migrations/cutover .../database/scripts` под root (иначе git reset/pull под fintech падает Permission denied).
+4. **composer на prod (F6).** Host php8.3, committed lock требует 8.4 → `composer dump-autoload -o --ignore-platform-reqs` (vendor рабочий). core/sklad — install при rebuild (php8.4 контейнер).
+5. **Дампы свежие (<2ч) ВСЕХ 4 prod-БД** — rollback и для cutover, и для BAT-ре-сида (BAT необратим). reconcile orphans=0 (projects/locations). Зафиксировать pre-cutover `main`-SHA каждого репо (rollback target).
 
 ---
 
-## SEQUENCE (целевое <90 мин; Track E чистая часть ≈ 30-40 мин без отладки)
+## SEQUENCE
 
 ### T0 — Pre-flight
-- Дашборды Grafana открыты (`obs-grafana` 127.0.0.1:3030, ssh-tunnel), Telegram прочищен.
-- Дампы prod свежие. reconcile orphans=0 (projects/locations). Дежурство.
-- Зафиксировать pre-cutover main SHA каждого репо (rollback target).
+- Grafana открыт (`obs-grafana` ssh-tunnel). Дампы prod свежие. reconcile orphans=0. pre-cutover main-SHA ×5 зафиксированы. Дежурство.
 
-### T0+5 — Maintenance window
+### T0+5 — Maintenance
 - rusaifin nginx 503 на write-эндпоинты (read остаётся). Telegram: «начинаем».
 
-### T0+15 — Merge `cutover-final → main` (core → sklad → fin) + push
-- Порядок: rusaicore (clean) → rusaisklad_back (clean) → rusaifin (конфликт StaffService).
-- **StaffService резолв** (если не закоммичен в cutover-final заранее): Core-механика побеждает; фичи Macallan
-  переэкспрессить через Core. Готовый резолв — dev-коммит `0b226ee`:
-  - `getGroupLeaderIdsFromProjects` → `StaffVisibilityScopeService::groupLeaderUserIdsForLocalProjectIds()` (Core assignments role=leader, не frozen `Point.group_leader_id`);
-  - `getSupportVisibleGroupLeaderIds` → `assignedGroupLeaderUserIds()` (Core) для «РГ без точки»;
-  - `getProjectStaff` → версия cutover-final (`ProjectStaffReader`), для SUPPORT_MANAGER `visibleAgentUserIds=null` (иначе агенты отфильтруются);
-  - 2 новых метода в `StaffVisibilityScopeService` (groupLeaderUserIdsForLocalProjectIds + assignedGroupLeaderUserIds) — перенести.
-- `git push origin main` (3 backend).
+### T0+15 — Merge `dev → main` ×5 + push
+Порядок: rusaicore → rusaisklad_back → rusaifin → rusaiauth → rusaisklad_front.
+- Резолв Dockerfile-конфликтов (core + front): оставить **union** (gmp + apcu/obs — как на dev). Остальное авто-мёржится.
+- `git push origin main` каждого. (StaffService-резолв уже в dev `0b226ee` → конфликта НЕТ, в отличие от старого cutover-final→main.)
 
-### T0+20 — Deploy на prod (per-service; ⚠ ВСЕГДА `-p <svc>_back_prod` — F7)
+### T0+20 — Deploy по сервисам (⚠ ВСЕГДА `-p <svc>_back_prod` — F7)
 **rusaicore:**
 ```
 cd /home/Rusaicore/web/server.rusaicore.ru/public_html
-sudo -u Rusaicore git pull --ff-only origin main        # remote = git@github (ssh-ключ владельца)
-docker compose -p rusaicore_back_prod -f compose.back.prod.yaml build   # включает gmp
+sudo -u Rusaicore git pull --ff-only origin main
+docker compose -p rusaicore_back_prod -f compose.back.prod.yaml build      # gmp
 docker compose -p rusaicore_back_prod -f compose.back.prod.yaml up -d
-docker exec rusaicore_back_prod-app-1 php artisan migrate --force        # forward idempotency_keys (cutover/ пуст — безопасно)
+docker exec rusaicore_back_prod-app-1 php artisan migrate --force           # FWD: idempotency_keys (cutover/ пуст у core)
 docker exec rusaicore_back_prod-app-1 php artisan config:cache
-docker exec rusaicore_back_prod-app-1 php -r 'var_dump(extension_loaded("gmp"));'  # проверка F10
+docker exec rusaicore_back_prod-app-1 php -r 'var_dump(extension_loaded("gmp"));'   # F10 → true
 ```
-**rusaisklad_back:** аналогично `-p rusaisklad_back_prod -f compose.back.prod.yaml` (build+up+config:cache; миграций нет).
+**rusaisklad_back:** `-p rusaisklad_back_prod -f compose.back.prod.yaml` build+up → `migrate --force` (**FWD: `transfers_require_documents`**) → config:cache → gmp-check.
 **rusaifin (host php-fpm, F4/F5/F6):**
 ```
 cd /home/fintech/web/server.rusaifin.ru/public_html
-# prereq chown уже сделан (шаг 3). prod fin на ветке master→origin/main:
-sudo -u fintech git fetch origin && sudo -u fintech git reset --hard origin/main   # или ff-pull если чисто
+sudo -u fintech git fetch origin && sudo -u fintech git reset --hard origin/main   # F4
 sudo -u fintech composer dump-autoload -o --ignore-platform-reqs                   # F6
+sudo -u fintech php artisan migrate --force          # FWD: fact_metric_key ×2 (2026_05_26_000001/000002). НЕ трогает cutover/
 sudo -u fintech php artisan config:clear && route:clear && cache:clear
-# opcache подхватит за revalidate_freq (~2s); host-wide php-fpm reload — только если validate_timestamps=0
 ```
+⚠ Проверить `migrate --pretend` ПЕРЕД `--force`: должны примениться ТОЛЬКО forward-миграции (fact_metric_key), НЕ cutover/ (D5 — отдельно, шаг T0+40).
 
-### T0+40 — Apply D5 legacy archive (на prod БД `fintech_base`)
-Pre-step log_bin + migrate cutover (Track E: M2-drop пропускаются, т.к. записаны в migrations; применится только D5):
+### T0+30 — Фронты
+- **rusaisklad_front** (transfers-UI): `cd /home/Rusaisklad/web/rusaisklad.ru/app && git pull(main) && UPDATE_BIBLI=true ./deploy/deploy.sh prod` (npm+bibli на хосте, docker build). Резолв Dockerfile.front.dev — union.
+- **fintech**: cutover-изменений НЕ имеет; деплой только если есть свои правки в main (`./dev.sh rfp`). Иначе пропустить.
+
+### T0+40 — D5 legacy archive (prod БД `fintech_base`)
+⚠ root-mysql `SET GLOBAL` + app-artisan взаимозависимы — выполнять одним блоком (оператор вручную через `!`, auto-mode классификатор блокирует).
 ```
-mysql -e "SET GLOBAL log_bin_trust_function_creators=1"      # capture orig сначала (на prod может быть != 0)
+ORIG=$(mysql -BNe "SELECT @@global.log_bin_trust_function_creators")   # на prod может быть != 0
+mysql -e "SET GLOBAL log_bin_trust_function_creators=1"
 cd /home/fintech/web/server.rusaifin.ru/public_html
-sudo -u fintech php artisan migrate --path=database/migrations/cutover --force
-mysql -e "SET GLOBAL log_bin_trust_function_creators=<orig>"
-# verify: 13 триггеров (trg_ro_* ×9 + trg_guard_* ×4), reads работают
+sudo -u fintech php artisan migrate --path=database/migrations/cutover --force   # M2-drops уже применены → только D5
+mysql -e "SET GLOBAL log_bin_trust_function_creators=$ORIG"
+# verify: 13 триггеров (trg_ro_* ×9 + trg_guard_* ×4)
+mysql -BNe "SELECT COUNT(*) FROM information_schema.triggers WHERE trigger_schema='fintech_base' AND (trigger_name LIKE 'trg_ro_%' OR trigger_name LIKE 'trg_guard_%')"
 ```
-⚠ root-mysql `SET GLOBAL` + app-artisan — взаимозависимы, выполнять одним блоком (auto-mode блокирует ассистенту → оператор вручную).
 
-### T0+50 — Smoke critical paths (mint-token, реальный Core HTTP)
-- `mint-smoke-token.php <uuid> rusaifin-spa fieldsales.read,core.read` → ADMIN/SUPPORT/RD/GL: `auth/me`,`staff`,`staff/project`,`shift/points` → все 2xx (агент: 403 на staff — корректно).
-- **D2-semantics:** видимость градуирована (ADMIN>SUPPORT>RD>GL), management-роли НЕ пустые.
-- sklad: `users/hierarchy`/`skus` 2xx. Core `/v1/*` latency <0.3s (gmp). reconcile orphans=0.
-- obs: russ360_* метрики растут, dualwrite_fallback отсутствует, alerts не звенят.
+### T0+50 — BAT майский ре-сид (на ЖИВЫХ prod-данных, необратимо → rollback = дамп T0)
+Решения (2026-05-28): **снос+пересоздание** (RET получают новые id; phone-match не используем); **departed identity — оставить орфанами** (не чистим в окне).
+```
+# 1) CORE purge + roster
+docker exec -i rusaicore_back_prod-pgsql-1 psql -U rusaicore_prod -d rusaicore_prod -v ON_ERROR_STOP=1 \
+  < /home/Rusaicore/web/server.rusaicore.ru/public_html/database/scripts/bat-reseed/purge-bat-field.sql
+docker exec rusaicore_back_prod-app-1 php artisan db:seed --class=Database\\Seeders\\BatMembershipBackfillSeeder --force
+# 2) SKLAD purge + сидеры (НЕ полный DatabaseSeeder — только BAT-цепочка по порядку)
+docker exec -i rusaisklad_back_prod-pgsql-1 psql -U rusaisklad_prod_db -d rusaisklad_prod_db -v ON_ERROR_STOP=1 \
+  < /home/Rusaisklad/web/server.rusaisklad.ru/public_html/database/scripts/bat-reseed/purge-bat-field.sql
+for c in SkuSeeder UserSeeder AssignmentSeeder InventorySeeder; do
+  docker exec rusaisklad_back_prod-app-1 php artisan db:seed --class=Database\\Seeders\\$c --force
+done
+# 3) Кросс-сервис: anchors + identity
+docker exec rusaisklad_back_prod-app-1 php artisan core:shadow-sync --write --entity=all
+docker exec rusaiauth_back_prod-app php artisan identity:import-from-rusaisklad --write
+```
+**Verify (как на dev):** балансы СВ по 6 регионам = датасет (итог 18170; Новокузнецк4247/Кемерово3767/Тула3051/Брянск2801/Орёл2160/Смоленск2144); склад=0; as-of 01.05=4010; core BAT-ростер 6 supervisor + 34 promoter(33+Архипова); field anchored 39/39; дублей по phone 0 (на проде phone-match → admin/managers НЕ дублятся, в отличие от dev).
 
-### T0+70 — Снять maintenance, unfreeze. Telegram: «закончили, мониторим».
+### T0+65 — Smoke critical paths (mint-token + реальный вход оператора)
+- mint `<uuid> rusaifin-spa fieldsales.read,core.read` → ADMIN/SUPPORT/RD/GL: `auth/me`,`staff`,`staff/project`,`shift/points` → 2xx, 0×5xx. AGENT: 403 на staff (корректно).
+- D2-видимость градуирована (ADMIN>SUPPORT>RD>GL). **Perf:** admin staff/project ~1с / staff ~0.3с (perf-фиксы).
+- sklad: `users/hierarchy`/`skus` 2xx; BAT-инвентарь/упрощённые передачи в UI; reconcile orphans=0.
+- obs: russ360_* растут, dualwrite_fallback пусто, alerts молчат.
+
+### T0+80 — Снять maintenance, unfreeze. Telegram: «закончили, мониторим».
 
 ---
 
-## ROLLBACK (если smoke падает) — Track E замеры
-1. **Maintenance остаётся.**
-2. **D5 unlock (~0.7s, F-Track-E):** `mysql fintech_base < database/scripts/cutover/unlock-legacy-tables.sql` → 13 триггеров сняты, legacy снова writable.
-3. **Reset main → pre-cutover SHA** в каждом репо (доказано в F4): core/sklad — git reset + rebuild `-p ..._prod` + up; fin — `sudo -u fintech git reset --hard <sha>` + dump-autoload + config:clear.
-4. Restore dumps если требуется. Restart. Smoke pre-cutover. Unfreeze.
-- Длительность abort: D5 unlock ~1s + git reset/rebuild (минуты). Заложить в risk-budget.
+## ROLLBACK
+1. Maintenance остаётся.
+2. **D5 unlock (~0.7с):** `mysql fintech_base < database/scripts/cutover/unlock-legacy-tables.sql` → 13 триггеров сняты.
+3. **Reset main → pre-cutover SHA** ×5 (git reset + rebuild `-p ..._prod` + up; rusaifin — `reset --hard <sha>` + dump-autoload + config:clear).
+4. **BAT-ре-сид необратим** → restore prod-БД из дампов T0 (core+sklad+auth). Это главный rollback-кост этого окна.
+5. Restart, smoke pre-cutover, unfreeze.
 
 ---
 
-## Findings из Track E (ссылки)
-- **F10** missing gmp → RS256 verify 1.9s → 500 (ИСПРАВЛЕН: gmp в core+sklad Dockerfile). Prereq #1.
-- **F11** Core bulk GET chunk 100 → nginx 414 (ИСПРАВЛЕН: chunk 50, `9f5ffad`).
-- **F4** divergent fin checkout (prereq #2). **F5** root-owned dirs (prereq #3). **F6** composer php8.4 (prereq #4). **F7** compose `-p`.
-- **F8** OTP-логин на dev не автоматизируется → на prod оператор логинится своим аккаунтом (реальный SMS) — не блокер.
-- **F9** [[test_personas]] role_id'ы устарели (факт: AGENT=3, GL=10, RD=9, SUPPORT=7, PM=8) — обновить memory.
+## Findings из Track E (постоянные грабли)
+- **F10** missing gmp → RS256 1.9с → 500 (gmp в core+sklad Dockerfile). **F11** chunk 100→50 (nginx 414). **F4** divergent fin checkout. **F5** root-owned dirs. **F6** composer php8.4. **F7** compose `-p`.
+- **F8** OTP на проде — реальный SMS, оператор логинится своим аккаунтом. **F9** role_id'ы: AGENT=3, SUPPORT_MANAGER=7, PM=8, RD=9, GROUP_LEADER=10.
 - **F-obs** rusaifin/фронты не в Prometheus scrape (Track B follow-up). **F-sec** PAT в git-remote dev rusaifin (ротировать).
-- **PERF-NOTE** admin staff/project=3.4MB/4.3s, support staff=202KB/5.2s — кандидат на пагинацию (Phase 5/Track G), не блокер.
+- **PERF** (после фиксов сессии): admin staff/project ~1с/1.28МБ (было 4с/3.46МБ). Дальнейшее — пагинация (Track G), не блокер.
 
-Связано: [[git_workflow_dev_main]], [[infra_map]], [[mysql_trigger_super_1419]], [[prod_infrastructure]], [[observability_stack]].
+## Дельта vs Track E rehearsal (что нового в этом окне)
+1. Branch `dev→main` (не cutover-final→main) — Dockerfile-only конфликты.
+2. Новые forward-миграции: rusaicore idempotency_keys; rusaifin `fact_metric_key`×2; rusaisklad `transfers_require_documents`.
+3. **BAT майский ре-сид** (purge-скрипты + сидеры + shadow-sync + identity) — НОВЫЙ шаг T0+50, необратим.
+4. rusaisklad_front transfers-UI деплой.
+5. perf-фиксы (N+1 / payload / per_page) — авто через dev→main.
+
+Связано: [[git_workflow_dev_main]], [[infra_map]], [[mysql_trigger_super_1419]], [[prod_infrastructure]], [[observability_stack]], [[bat_data_actualization]], `track-e-dev-rehearsal.md`.
