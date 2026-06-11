@@ -11,6 +11,11 @@
 #   russ artisan <svc> <env> -- <args...>  # docker exec ... php artisan <args>; rusaifin prod = на хосте
 #   russ db    <svc> <env>                 # psql/mysql cli внутри db-контейнера
 #   russ ports                             # покажи карту портов (local + dev + prod)
+#   russ obs targets                       # здоровье всех Prometheus scrape-таргетов
+#   russ obs query '<promql>'              # instant-запрос к прод-Prometheus
+#   russ obs logs <svc> [env] [--grep=X] [--since=2h] [--limit=N]   # LogQL к Loki
+#   russ obs errors [svc] [--since=48h] [--limit=N]                 # GlitchTip топ issues
+#   russ obs alerts                        # активные алерты Grafana
 #   russ help
 #
 # env = local | dev | prod.
@@ -225,7 +230,139 @@ EOF
 }
 
 cmd_help() {
-  sed -n '3,18p' "$0"
+  sed -n '3,23p' "$0"
+}
+
+# ---------- obs (observability stack на сервере; всё read-only) ----------
+
+since_secs() {
+  local s="$1" n="${1%[smhd]}" unit="${1##*[0-9]}"
+  [[ "$n" =~ ^[0-9]+$ && "$unit" =~ ^[smhd]$ ]] || die "bad duration: $s (ожидаю 30m / 2h / 1d)"
+  case "$unit" in s) echo "$n";; m) echo $((n*60));; h) echo $((n*3600));; d) echo $((n*86400));; esac
+}
+
+PY_OBS_TARGETS='
+import json,sys
+ts=json.load(sys.stdin)["data"]["activeTargets"]
+for t in sorted(ts,key=lambda x:(x["labels"].get("job",""),x["labels"].get("env",""))):
+    l=t["labels"]; ok=t["health"]=="up"
+    mark="OK " if ok else "DOWN"
+    err="" if ok else "  "+(t.get("lastError") or "")[:80]
+    print("%s %-12s %-5s %s%s" % (mark,l.get("job","?"),l.get("env",""),t["scrapeUrl"],err))
+'
+
+PY_OBS_QUERY='
+import json,sys
+d=json.load(sys.stdin)
+if d.get("status")!="success":
+    print(json.dumps(d,indent=2)); sys.exit(1)
+r=d["data"]; res=r["result"]
+if r["resultType"]=="scalar": print(res[1]); sys.exit(0)
+if not res: print("(пустой результат)")
+for x in res:
+    m=dict(x["metric"]); name=m.pop("__name__","")
+    lbl=",".join("%s=%s" % kv for kv in sorted(m.items()))
+    if "value" in x:
+        print("%s{%s} = %s" % (name,lbl,x["value"][1]))
+    else:
+        pts=x.get("values",[])
+        print("%s{%s} = %s точек, последняя %s" % (name,lbl,len(pts),pts[-1][1] if pts else "-"))
+'
+
+PY_OBS_LOGS='
+import json,sys,datetime
+d=json.load(sys.stdin)
+rows=[]
+for s in d.get("data",{}).get("result",[]):
+    for ts,line in s["values"]:
+        rows.append((int(ts),line))
+rows.sort()
+if not rows: print("(пусто за этот период)")
+for ts,line in rows:
+    t=datetime.datetime.fromtimestamp(ts/1e9).strftime("%m-%d %H:%M:%S")
+    print(t,line.rstrip()[:500])
+'
+
+PY_OBS_ALERTS='
+import json,sys
+d=json.load(sys.stdin)
+if not d: print("(нет активных алертов)")
+for a in d:
+    l=dict(a.get("labels",{}))
+    name=l.pop("alertname","?"); l.pop("__alert_rule_uid__",None); l.pop("grafana_folder",None)
+    extra=",".join("%s=%s" % kv for kv in sorted(l.items()))
+    print("%s  %s {%s}  с %s" % (a.get("status",{}).get("state","?"),name,extra,a.get("startsAt","")[:19]))
+'
+
+# Loki-селектор для сервиса: rusaifin читается из host-файла (метки service/env),
+# остальные — docker-контейнеры (метка container). См. promtail-config.yml.
+obs_loki_selector() {
+  local svc="$1" env="$2"
+  if [[ "$svc" == "{"* ]]; then echo "$svc"; return; fi
+  if [[ "$svc" == "rusaifin" ]]; then echo "{service=\"rusaifin\",env=\"$env\"}"; return; fi
+  local c="${SVC_APP[$svc:$env]:-}"
+  [[ -z "$c" || "$c" == "__HOST__" ]] && die "нет контейнера для $svc:$env (для фронтов логи — в GlitchTip: russ obs errors)"
+  echo "{container=\"$c\"}"
+}
+
+cmd_obs() {
+  local sub="${1:-}"; shift || true
+  case "$sub" in
+    targets)
+      ssh_remote "curl -s http://127.0.0.1:9090/api/v1/targets" | python3 -c "$PY_OBS_TARGETS"
+      ;;
+    query)
+      local q="${1:-}"; [[ -z "$q" ]] && die "usage: russ obs query '<promql>'"
+      local rq; printf -v rq '%q' "$q"
+      ssh_remote "curl -s http://127.0.0.1:9090/api/v1/query --data-urlencode query=$rq" | python3 -c "$PY_OBS_QUERY"
+      ;;
+    logs)
+      local svc="${1:-}"; [[ -z "$svc" ]] && die "usage: russ obs logs <svc> [env] [--grep=X] [--since=2h] [--limit=N]"
+      shift
+      local env="prod" grep="" since="1h" limit="100"
+      [[ "${1:-}" =~ ^(dev|prod)$ ]] && { env="$1"; shift; }
+      local a; for a in "$@"; do case "$a" in
+        --grep=*)  grep="${a#*=}" ;;
+        --since=*) since="${a#*=}" ;;
+        --limit=*) limit="${a#*=}" ;;
+        *) die "unknown arg: $a" ;;
+      esac; done
+      local sel; sel="$(obs_loki_selector "$svc" "$env")"
+      [[ -n "$grep" ]] && sel="$sel |= \"${grep//\"/\\\"}\""
+      local secs; secs="$(since_secs "$since")"
+      local rq; printf -v rq '%q' "$sel"
+      info "loki: $sel (за $since, limit $limit)"
+      ssh_remote "curl -s -G http://127.0.0.1:3100/loki/api/v1/query_range --data-urlencode query=$rq --data-urlencode start=\$((\$(date +%s)-$secs))000000000 --data-urlencode limit=$limit --data-urlencode direction=backward" | python3 -c "$PY_OBS_LOGS"
+      ;;
+    errors)
+      local proj="" since="48h" limit="20"
+      local a; for a in "$@"; do case "$a" in
+        --since=*) since="${a#*=}" ;;
+        --limit=*) limit="${a#*=}" ;;
+        rusaicore|rusaiauth|rusaifin) proj="$a" ;;
+        rusaisklad) proj="rusaisklad-back" ;;
+        fintech) proj="fintech-front" ;;
+        rusaisklad_front) proj="rusaisklad-front" ;;
+        *) die "unknown arg: $a" ;;
+      esac; done
+      local hours=$(( $(since_secs "$since") / 3600 )); (( hours < 1 )) && hours=1
+      local sql="select to_char(i.last_seen,'MM-DD HH24:MI') as last, p.name as project, i.count,
+                 replace(left(i.title,70), chr(10), ' ') as title
+                 from issue_events_issue i join projects_project p on p.id=i.project_id
+                 where i.last_seen > now() - interval '$hours hours'
+                 ${proj:+and p.name='$proj'}
+                 order by i.last_seen desc limit $limit"
+      local rsql; printf -v rsql '%q' "$sql"
+      ssh_remote "docker exec obs-glitchtip-postgres psql -U glitchtip -d glitchtip -c $rsql"
+      ;;
+    alerts)
+      # пароль Grafana читается и используется только на сервере, наружу не выходит
+      ssh_remote "set -a; . /root/observability/.env 2>/dev/null || . /root/russ360-infra/infra/observability/.env; set +a; curl -s -u admin:\$GF_SECURITY_ADMIN_PASSWORD http://127.0.0.1:3030/api/alertmanager/grafana/api/v2/alerts" | python3 -c "$PY_OBS_ALERTS"
+      ;;
+    *)
+      sed -n '/^#   russ obs/,/^#   russ help/p' "$0"
+      ;;
+  esac
 }
 
 # ---------- dispatch ----------
@@ -236,6 +373,7 @@ case "${1:-help}" in
   shell)   shift; cmd_shell "$@" ;;
   artisan) shift; cmd_artisan "$@" ;;
   db)      shift; cmd_db "$@" ;;
+  obs)     shift; cmd_obs "$@" ;;
   ports)   shift; cmd_ports ;;
   help|-h|--help) cmd_help ;;
   *) die "unknown cmd: $1 (try: russ help)" ;;

@@ -59,12 +59,15 @@ scrape_configs:
       - targets: ['rusaisklad_back_dev-nginx-1:80']
         labels: { service: rusaisklad, env: dev }
 
-  # rusaifin runs native php-fpm (NOT docker) → no app-network to join. Scraping it
-  # needs a dedicated loopback /metrics vhost on the host (or host-header routing),
-  # wired at deploy time. Deferred (also frozen under the D4 work in flight).
-  #
-  # - job_name: rusaifin
-  #   metrics_path: /metrics
-  #   static_configs:
-  #     - targets: ['host.docker.internal:PORT']   # via dedicated metrics vhost
-  #       labels: { service: rusaifin, env: prod }
+  # rusaifin runs native php-fpm (NOT docker) → no app-network to join. Scraped via
+  # its public Hestia vhost over TLS; /metrics is IP-allowlisted at nginx (loopback +
+  # private nets + host IP) — see hestia/nginx.ssl.conf_metrics. On a local stack the
+  # allowlist rejects us → target shows down, same as the other app jobs locally.
+  - job_name: rusaifin
+    metrics_path: /metrics
+    scheme: https
+    static_configs:
+      - targets: ['server.rusaifin.ru:443']
+        labels: { service: rusaifin, env: prod }
+      - targets: ['dev.server.rusaifin.ru:443']
+        labels: { service: rusaifin, env: dev }

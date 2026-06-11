@@ -1,0 +1,22 @@
+# rusaifin /metrics: IP allowlist + proxy to the same Apache upstream as the vhost.
+# Without this the endpoint is exposed to the internet (sessions gauge, route map,
+# latency histograms). Prometheus scrapes via the public vhost (job: rusaifin).
+#
+# Install (copy as-is, one per env; picked up by the trailing
+# `include .../nginx.ssl.conf_*;` in the Hestia vhost — survives v-rebuild-web-domain):
+#   /home/fintech/conf/web/server.rusaifin.ru/nginx.ssl.conf_metrics
+#   /home/fintech/conf/web/dev.server.rusaifin.ru/nginx.ssl.conf_metrics
+# Then: nginx -t && systemctl reload nginx
+#
+# Private ranges are safe to allow on the public listen: a spoofed 172.x/10.x source
+# can't complete a TCP handshake from outside. obs-prometheus reaches the host IP
+# from the docker bridge, hence 172.16.0.0/12.
+location = /metrics {
+    allow 127.0.0.1;
+    allow 82.146.57.149;
+    allow 10.0.0.0/8;
+    allow 172.16.0.0/12;
+    allow 192.168.0.0/16;
+    deny  all;
+    proxy_pass https://82.146.57.149:8443;
+}

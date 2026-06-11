@@ -1,14 +1,48 @@
 apiVersion: 1
 
 # Grafana-managed alert rules (provisioned). Datasource uid PBFA97CFB590B2093 = Prometheus
-# (see provisioning/datasources/datasources.yml). Thresholds are first-pass — calibrate
-# during the Phase 0 baseline week.
+# (see provisioning/datasources/datasources.yml).
+#
+# Calibrated 2026-06-11 against a 14-day prod baseline. Traffic here is tiny
+# (1-10 req/min per service), so percentile rules carry a min-traffic gate
+# (`and rate > 0.05` ≈ 3 req/min) — below it a p95 is just the slowest of ~3
+# requests and flaps for hours (rusaiauth: 53h above 1s in 14d, all noise).
+# SMS-backed routes (recovery/registration) are excluded from latency: their
+# p95 (up to ~10s) is the SMS provider's latency, not service health; provider
+# failures still surface via the 5xx and exception rules.
 groups:
   - orgId: 1
     name: russ360-service-health
     folder: Russ360
     interval: 1m
     rules:
+      - uid: russ360-target-down
+        title: 'Scrape target down (service unreachable)'
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.job }}/{{ $labels.env }}: scrape target down ({{ $labels.instance }})'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: up
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
       - uid: russ360-5xx-rate
         title: '5xx rate > 1% (per service)'
         condition: C
@@ -18,7 +52,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '{{ $labels.service }}/{{ $labels.env }}: 5xx share {{ printf "%.1f" (mulf $values.A.Value 100) }}% over 5m'
+          summary: '{{ $labels.service }}/{{ $labels.env }}: 5xx share {{ printf "%.1f" (mulf $values.A.Value 100) }}% over 10m'
         data:
           - refId: A
             relativeTimeRange: { from: 600, to: 0 }
@@ -27,9 +61,13 @@ groups:
               refId: A
               instant: true
               expr: >
-                sum by (service,env) (rate(russ360_http_requests_total{status=~"5.."}[5m]))
-                /
-                clamp_min(sum by (service,env) (rate(russ360_http_requests_total[5m])), 1e-9)
+                (
+                  sum by (service,env) (rate(russ360_http_requests_total{status=~"5.."}[10m]))
+                  /
+                  clamp_min(sum by (service,env) (rate(russ360_http_requests_total[10m])), 1e-9)
+                )
+                and
+                (sum by (service,env) (rate(russ360_http_requests_total[10m])) > 0.05)
           - refId: C
             datasourceUid: __expr__
             model:
@@ -40,9 +78,9 @@ groups:
                 - evaluator: { type: gt, params: [0.01] }
 
       - uid: russ360-latency-p95
-        title: 'Request latency p95 > 1s (per service)'
+        title: 'Request latency p95 > 2.5s (per service, min 3 req/min)'
         condition: C
-        for: 5m
+        for: 10m
         noDataState: OK
         execErrState: OK
         labels:
@@ -57,8 +95,12 @@ groups:
               refId: A
               instant: true
               expr: >
-                histogram_quantile(0.95,
-                  sum by (le,service,env) (rate(russ360_http_request_duration_seconds_bucket[5m])))
+                (
+                  histogram_quantile(0.95, sum by (le,service,env)
+                    (rate(russ360_http_request_duration_seconds_bucket{route!~"api/v1/(recovery|registration).*"}[15m])))
+                )
+                and
+                (sum by (service,env) (rate(russ360_http_requests_total{route!~"api/v1/(recovery|registration).*"}[15m])) > 0.05)
           - refId: C
             datasourceUid: __expr__
             model:
@@ -66,7 +108,7 @@ groups:
               type: threshold
               expression: A
               conditions:
-                - evaluator: { type: gt, params: [1] }
+                - evaluator: { type: gt, params: [2.5] }
 
       - uid: russ360-exception-rate
         title: 'Exception rate > 5/min (per service)'
