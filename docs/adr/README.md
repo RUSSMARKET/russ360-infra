@@ -66,5 +66,6 @@ ADR-XXXX (только если напрямую связаны)
 | 4 | [ADR-0004](0004-what-we-do-not-do.md) | Что мы сознательно НЕ делаем (анти-паралич) |
 | 5 | [ADR-0005](0005-rusaifin-prod-app-debug-on.md) | Почему APP_DEBUG=true на rusaifin prod — намеренно |
 | 6 | [ADR-0006](0006-territory-operational-zone.md) | Territory — операционная зона; проекты-клоны (6 «Магнит …») схлопываются в один проект |
+| 7 | [ADR-0007](0007-cards-as-rusaifin-module.md) | Учёт пластиковых карт — serialized-модуль в rusaifin; rusairegistry (M4) отложен |
 
 Для **аудита истории решений** — сортировка по дате (см. frontmatter каждого ADR).
