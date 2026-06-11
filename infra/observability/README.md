@@ -113,7 +113,8 @@ infra/observability/
 │   │   └── alerting/                    # Track B (contact points, rules)
 │   └── dashboards-json/
 │       ├── host-overview.json
-│       └── services-overview.json
+│       ├── services-overview.json
+│       └── service-debug.json          # один сервис под лупой (templated + Loki)
 └── glitchtip/                           # uploads volume root
 ```
 
@@ -125,12 +126,23 @@ infra/observability/
 
 Статус: [`/cutover-status/track-b-app-instrumentation.md`](../../cutover-status/track-b-app-instrumentation.md).
 
-- **Scrape:** jobs `rusaicore` / `rusaiauth` / `rusaisklad` в `prometheus/prometheus.yml` (по имени nginx-контейнера через `compose.scrape.yml`). `rusaifin` (native) — отложен (см. status).
+- **Scrape:** jobs `rusaicore` / `rusaiauth` / `rusaisklad` в `prometheus/prometheus.yml` (по имени nginx-контейнера через `compose.scrape.yml`). **`rusaifin` подключён 2026-06-11** — native php-fpm, скрейп по публичному vhost `https://server.rusaifin.ru:443/metrics` (и dev). `/metrics` закрыт IP-allowlist'ом `hestia/nginx.ssl.conf_metrics` (ставится в оба rusaifin-vhost'а; раньше был открыт в интернет). Все 11 таргетов UP.
 - **Метрики приложений** (Prometheus namespace `russ360_`): `http_requests_total`, `http_request_duration_seconds`, `exceptions_total` (RED по всем сервисам) + бизнес: `active_sessions` (rusaifin), `active_tokens` (rusaiauth), `core_api_request_duration_seconds` / `core_gateway_errors_total` (sklad gateway).
+  - ⚠ **rusaifin: env-метка ненадёжна для counter/histogram.** APCu расшарен на весь php8.3-fpm master (один master на версию PHP, юзер fintech), namespace `russ360` общий → `http_requests_total`/latency/exceptions у dev и prod **совпадают** (gauge `active_sessions` корректен — считается из своей БД). Отделить: `PROMETHEUS_STORAGE=redis` с разным DB-index по env. Не сделано.
 - **Sentry SDK** в сервисах → DSN из GlitchTip → exception tracking (бэкенды `sentry/sentry-laravel`, фронты `@sentry/vue`).
-- **Alerting** (provisioned): `grafana/provisioning/alerting/{rules,contactpoints,policies}.yaml` — 5xx>1%, p95>1s, exceptions>5/min, disk>80/95%. Контакт-поинт Telegram (`GF_TELEGRAM_BOT_TOKEN`/`GF_TELEGRAM_CHAT_ID`).
-- **Dashboard:** `services-overview.json` (RED + бизнес-метрики + scrape up + error-логи).
-- **UptimeRobot** пинг наружных URL — настраивается в UptimeRobot UI/API (не в репе): Grafana, SSO, оба фронта.
+- **Alerting** (provisioned): `grafana/provisioning/alerting/{rules,contactpoints,policies}.yaml`. Калибровка 2026-06-11 по 14д baseline:
+  - метрики: `target-down (up==0)`, `5xx>1%`, `p95>2.5s` (окно 15m, гейт ≥3 req/min, SMS-роуты исключены), `exceptions>5/min`, `disk>80/95%`.
+  - логи (Loki datasource, группа `russ360-logs`): `scheduler-fail` (Scheduled command + fail, >3 за 30m) и `critical-level` (>0 за 5m). Ловят то, что числовые метрики не видят.
+  - контакт-поинт Telegram (`GF_TELEGRAM_BOT_TOKEN`, chat id в `contactpoints.yaml`).
+- **Логи: единая схема меток.** promtail размечает все 4 backend меткой `{service,env}` (docker-сервисы — relabel из `compose_project`, rusaifin — из laravel job). LogQL-селектор `{service="...",env="..."}` работает одинаково для всех.
+- **Dashboards:** `services-overview.json` (весь стек разом) + `service-debug.json` (uid `russ360-service-debug`: один сервис под лупой — dropdown service/env, RED, разбивка по роутам, логи с переходом в Explore).
+- **CLI:** `scripts/russ obs {targets|query|logs|errors|alerts}` — read-only доступ к стеку из терминала (Prometheus/Loki/GlitchTip/Grafana).
+- **UptimeRobot** пинг наружных URL — API платный на free-плане, не сделан. Кандидат на замену: self-hosted `blackbox-exporter`.
+
+## Roadmap / backlog (отдельными заходами)
+
+- **correlation-id (trace-id) сквозь сервисы** — пробросить один request-id заголовком (`X-Request-Id`) через rusaifin→rusaicore→rusaiauth→rusaisklad, писать его в каждую лог-строку (Monolog processor) и отдавать клиенту. Тогда по одному id виден полный путь распределённого запроса в Loki (`{...} |= "<id>"`). Стоимость: middleware + Monolog-processor в каждом из 4 сервисов + проброс в gateway-клиентах (`CoreApiClient` и аналоги). Высокая отдача для дебага распределённых багов; делать отдельным заходом, не точечно.
+- **blackbox-exporter** — внешняя проверка доступности (TLS-срок, редиректы, реальный ответ) для Grafana/SSO/обоих фронтов; ловит то, что внутренний scrape не видит (упал nginx/протух сертификат).
 
 ## Whitelist принципы (важно)
 

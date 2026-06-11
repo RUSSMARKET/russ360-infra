@@ -199,3 +199,73 @@ groups:
               expression: A
               conditions:
                 - evaluator: { type: gt, params: [95] }
+
+  # Log-based alerts (Loki datasource P8E80F9AEF21F6940). Catch failure modes that the
+  # numeric RED metrics miss — broken cron, hard CRITICAL lines. Scoped to app services
+  # on prod (service/env labels are unified across all 4 backends via promtail relabel;
+  # see promtail-config.yml). Thresholds calibrated 2026-06-11 against a 7d Loki baseline:
+  # scheduler failures ≈10/7d (all rusaifin), CRITICAL-level ≈1/7d → both high-signal.
+  - orgId: 1
+    name: russ360-logs
+    folder: Russ360
+    interval: 1m
+    rules:
+      - uid: russ360-log-scheduler-fail
+        title: 'Scheduled command failing (cron broken)'
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ printf "%.0f" $values.A.Value }} scheduler failures in 30m (prod) — see Service debug dashboard / russ obs logs'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: P8E80F9AEF21F6940
+            model:
+              refId: A
+              datasource: { type: loki, uid: P8E80F9AEF21F6940 }
+              queryType: instant
+              expr: >
+                sum(count_over_time({service=~"rusaicore|rusaiauth|rusaisklad|rusaifin",env="prod"}
+                |~ `(?i)scheduled command` |~ `(?i)fail|error|exception` [30m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [3] }
+
+      - uid: russ360-log-critical
+        title: 'CRITICAL-level log line (prod app services)'
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ printf "%.0f" $values.A.Value }} CRITICAL log lines in 5m (prod) — see Service debug dashboard / russ obs logs'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: P8E80F9AEF21F6940
+            model:
+              refId: A
+              datasource: { type: loki, uid: P8E80F9AEF21F6940 }
+              queryType: instant
+              expr: >
+                sum(count_over_time({service=~"rusaicore|rusaiauth|rusaisklad|rusaifin",env="prod"}
+                |~ `(?i)"level_name":"critical"|\bCRITICAL\b` [5m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
