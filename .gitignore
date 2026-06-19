@@ -29,3 +29,6 @@ infra/observability/.env
 # Claude / agent state
 .claude/
 .playwright-mcp/
+
+# Session screenshots (агентские артефакты)
+/*.png

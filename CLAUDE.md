@@ -1,7 +1,7 @@
 # Russ360 / Russmarket 360 — проектный контекст
 
 ## Что это
-Платформа Russmarket 360 — экосистема из 4 Laravel-сервисов и 2 Nuxt-фронтов. **OAuth2/OIDC активен в проде** (rusaiauth — IdP). M2-cutover завершён 2026-05-13. Stage 1 (rusaisklad core domain: projects+memberships+locations) закрыт 2026-05-18. Текущая фаза: **post-cutover stabilization** + подготовка Stage 2 (переключение читателей rusaifin на Core contracts).
+Платформа Russmarket 360 — экосистема из 4 Laravel-сервисов и 2 Nuxt-фронтов. **OAuth2/OIDC активен в проде** (rusaiauth — IdP). M2-cutover завершён 2026-05-13. Stage 1 закрыт 2026-05-18. **Stage 2 final cutover завершён на проде 2026-05-28**: rusaifin/rusaisklad читают и пишут Core-домен (projects/memberships/locations/assignments) только через Core gateways, legacy-пивоты заморожены DB-триггерами. Текущая фаза: **post-Stage-2 stabilization** + проработка находок аудита `docs/audit-2026-06/`.
 
 ## Сервисы (бэкенд)
 
@@ -69,7 +69,9 @@ docker exec rusaiauth-app php /var/www/html/scripts/mint-smoke-token.php <user_u
 - `m2-completion-report.md` — отчёт о завершении M2
 - `frontend-handoff.md` — спека для фронта (OIDC discovery, client_id'ы, PKCE, scopes)
 
-Аудит расхождений архитектуры от факта: `docs/russ360-audit-2026-05-18.md` (корень монорепы).
+Аудиты (корень монорепы):
+- **`docs/audit-2026-06/`** — свежий пофлоу-аудит (INDEX.md = реестр 76+ open findings P1–P3, findings/ = детальные карточки). Канонический источник известных багов/рисков.
+- `docs/russ360-audit-2026-05-18.md` — пред-Stage-2 аудит (исторический snapshot).
 
 ## Тесты
 
@@ -81,7 +83,7 @@ docker exec rusaiauth-app php /var/www/html/scripts/mint-smoke-token.php <user_u
 
 Автор изучает систему и стабилизирует прод после M2/Stage1 cutover. Перед началом любой работы агент должен прочитать:
 
-1. **`docs/russ360-audit-2026-05-18.md`** — свежий аудит реального состояния системы (P0/P1/P2 находки, фактический matrix «сущность × сервис»).
+1. **`docs/audit-2026-06/INDEX.md`** — свежий пофлоу-аудит системы (open findings P1–P3 с карточками в findings/).
 2. **`docs/russ360-deep-dive.md`** — техническая карта системы (OAuth flow, PKCE, JWT, прод-инфра, грабли). Дата сборки 2026-05-04 — пред-cutover snapshot; для текущего состояния сверяться с аудитом.
 3. **`docs/learning-progress.md`** — где автор сейчас в обучении, какие темы прошёл, какие открытые вопросы. Обновляй после значимых сессий.
 4. **`docs/russ360-learning-curriculum.md`** — двухчасовый сквозной материал по системе. Содержит честную архитектурную оценку — не противоречь ей без причины.
@@ -96,7 +98,7 @@ docker exec rusaiauth-app php /var/www/html/scripts/mint-smoke-token.php <user_u
 ### Архитектурная позиция (не пересматривай по своей инициативе)
 
 - 4 backend-сервиса (rusaiauth, rusaicore, rusaifin, rusaisklad_back). Возможно, разрезано избыточно (rusaicore + один из доменных сервисов могли бы быть одним сервисом). Это известно, обсуждено в Прогоне 5 курикулума.
-- Решение: M2 cutover закрыт; **сейчас фокус — пост-cutover стабилизация и Stage 2** (переключение читателей `rusaifin` на Core-контракты). Слияния сервисов не обсуждаются до завершения Stage 2.
+- Решение: M2 и Stage 2 cutover закрыты; **сейчас фокус — пост-Stage-2 стабилизация и закрытие находок аудита**. Слияния сервисов не обсуждаются без явного запроса автора.
 - rusaiauth как отдельный сервис **выделен правильно** (security boundary). Это не обсуждается.
 
 ### Технические инварианты, которые легко нарушить случайно
