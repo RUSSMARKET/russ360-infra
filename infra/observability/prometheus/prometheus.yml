@@ -71,3 +71,40 @@ scrape_configs:
         labels: { service: rusaifin, env: prod }
       - targets: ['dev.server.rusaifin.ru:443']
         labels: { service: rusaifin, env: dev }
+
+  # ───────────────────── Frontend synthetic probes (blackbox) ─────────────────────
+  # Внешняя проба публичных фронтов через obs-blackbox: ловит "сайт не грузится"
+  # (down / 5xx / TLS / белый экран), чего метрики app-nginx не видят.
+  # relabel: цель пробы → __param_target и instance; реальный адрес скрейпа → blackbox:9115.
+  - job_name: blackbox-frontend-shell
+    metrics_path: /probe
+    params:
+      module: [http_nuxt_shell]
+    static_configs:
+      - targets:
+          - https://fintech.rusaifin.ru/
+          - https://rusaisklad.ru/
+        labels: { env: prod }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115
+
+  - job_name: blackbox-frontend-status
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - https://sso.rusaifin.ru/
+        labels: { env: prod }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115

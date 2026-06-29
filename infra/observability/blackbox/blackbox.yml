@@ -1,0 +1,28 @@
+# Синтетические HTTP-пробы публичных фронтов (Russ360). Ловят "сайт не грузится":
+# nginx/контейнер фронта down, 5xx, TLS handshake/протух, и "белый экран" (HTML отдан,
+# но это не приложение) через проверку тела. Скрейпит obs-prometheus, job 'blackbox-*'.
+# preferred_ip_protocol: ip4 — обойти timeweb AAAA-leak (IPv6 у части записей кривой).
+modules:
+  http_2xx:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      follow_redirects: true
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+      tls_config:
+        insecure_skip_verify: false
+  http_nuxt_shell:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      follow_redirects: true
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+      fail_if_body_not_matches_regexp:
+        - "__nuxt"
+      tls_config:
+        insecure_skip_verify: false

@@ -200,6 +200,7 @@ groups:
               conditions:
                 - evaluator: { type: gt, params: [95] }
 
+
   # Log-based alerts (Loki datasource P8E80F9AEF21F6940). Catch failure modes that the
   # numeric RED metrics miss — broken cron, hard CRITICAL lines. Scoped to app services
   # on prod (service/env labels are unified across all 4 backends via promtail relabel;
@@ -269,3 +270,89 @@ groups:
               expression: A
               conditions:
                 - evaluator: { type: gt, params: [0] }
+
+  - orgId: 1
+    name: russ360-frontend
+    folder: Russ360
+    interval: 1m
+    rules:
+      - uid: russ360-frontend-down
+        title: 'Фронт не грузится (probe_success=0)'
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.instance }}: сайт не отвечает/не отдаётся (down, 5xx, TLS или белый экран — пустой shell)'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: 'probe_success{job=~"blackbox-frontend.*"}'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      - uid: russ360-frontend-5xx
+        title: 'Фронт отвечает 5xx'
+        condition: C
+        for: 1m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.instance }}: HTTP {{ printf "%.0f" $values.A.Value }} (серверная ошибка фронта)'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: 'probe_http_status_code{job=~"blackbox-frontend.*"}'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [499] }
+
+      - uid: russ360-frontend-cert-expiry
+        title: 'TLS-сертификат фронта истекает (<10 дней)'
+        condition: C
+        for: 30m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.instance }}: TLS-сертификат истекает через {{ printf "%.1f" $values.A.Value }} дн.'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: '(probe_ssl_earliest_cert_expiry{job=~"blackbox-frontend.*"} - time()) / 86400'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [10] }

@@ -136,6 +136,8 @@ services:
   grafana:
     image: grafana/grafana:11.4.0
     container_name: obs-grafana
+    extra_hosts:
+      - "api.telegram.org:149.154.167.220"
     restart: unless-stopped
     depends_on: [prometheus, loki]
     labels:
@@ -232,3 +234,18 @@ services:
     command: ./bin/run-celery-with-beat.sh
     volumes:
       - glitchtip_uploads:/code/uploads
+
+  # ═════════════════════ SYNTHETIC PROBES ═════════════════════
+  blackbox:
+    image: prom/blackbox-exporter:v0.25.0
+    container_name: obs-blackbox
+    restart: unless-stopped
+    labels:
+      <<: *common-labels
+      tier: metrics
+    volumes:
+      - ./blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    command:
+      - '--config.file=/etc/blackbox_exporter/config.yml'
+    ports:
+      - "127.0.0.1:9115:9115"
