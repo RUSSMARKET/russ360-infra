@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# Deploy/drift checker for Russ360 prod repos. Runs from host cron every 15 min,
+# writes machine-readable state for obs-tgbot (which turns it into telegram posts):
+#   /var/lib/russ360-botdata/drift.json    — full current picture (for /selfcheck, daily report)
+#   /var/lib/russ360-botdata/events.jsonl  — append-only deploy/drift events (bot tails it)
+#
+# A repo is:
+#   deploy  — HEAD changed since the previous run (someone pulled new code)
+#   drift   — local commits missing on origin, or repo behind origin, or dirty tracked files
+#   clean   — matches origin
+#   no-fetch — origin unreachable (e.g. rusaicore prod has no deploy key); only HEAD-change
+#              detection works there.
+#
+# Install: ln -s /root/russ360-infra/scripts/deploy-drift-check.sh /etc/cron.d wrapper (see bot deploy notes).
+
+set -u
+DATA_DIR=/var/lib/russ360-botdata
+STATE="$DATA_DIR/heads.state"           # repo|head lines from the previous run
+DRIFT_JSON="$DATA_DIR/drift.json"
+EVENTS="$DATA_DIR/events.jsonl"
+LOCK="$DATA_DIR/.lock"
+
+# name|path|branch  (branch = the origin branch this checkout should track)
+REPOS="
+infra|/root/russ360-infra|main
+rusaifin-prod|/home/fintech/web/server.rusaifin.ru/public_html|main
+rusaifin-dev|/home/fintech/web/dev.server.rusaifin.ru/public_html|dev
+fintech-front-prod|/home/fintech/web/fintech.rusaifin.ru/public_html|main
+fintech-front-dev|/home/fintech/web/dev.fintech.rusaifin.ru/public_html|dev
+rusaiauth-prod|/home/Rusaiauth/web/sso.rusaifin.ru|main
+rusaiauth-dev|/home/Rusaiauth/web/dev.sso.rusaifin.ru/public_html|dev
+rusaicore-prod|/home/Rusaicore/web/server.rusaicore.ru/public_html|main
+rusaicore-dev|/home/Rusaicore/web/dev.server.rusaicore.ru/public_html|dev
+sklad-back-prod|/home/Rusaisklad/web/server.rusaisklad.ru/public_html|main
+sklad-back-dev|/home/Rusaisklad/web/dev.server.rusaisklad.ru/public_html|dev
+sklad-front-prod|/home/Rusaisklad/web/rusaisklad.ru/public_html|main
+"
+
+mkdir -p "$DATA_DIR"
+exec 9>"$LOCK"
+flock -n 9 || exit 0
+
+G() { git -C "$1" -c safe.directory='*' "${@:2}"; }
+
+declare -A PREV
+if [ -f "$STATE" ]; then
+  while IFS='|' read -r name head; do
+    [ -n "$name" ] && PREV[$name]="$head"
+  done < "$STATE"
+fi
+
+NOW=$(date +%s)
+: > "$STATE.tmp"
+repo_json=""
+
+emit_event() { # type repo detail
+  printf '{"ts":%s,"type":"%s","repo":"%s","detail":"%s"}\n' \
+    "$NOW" "$1" "$2" "$(echo "$3" | sed 's/"/\\"/g' | tr -d '\n')" >> "$EVENTS"
+}
+
+while IFS='|' read -r name path branch; do
+  [ -z "$name" ] && continue
+  if [ ! -d "$path/.git" ]; then
+    repo_json="$repo_json{\"name\":\"$name\",\"status\":\"missing\"},"
+    continue
+  fi
+
+  head=$(G "$path" rev-parse --short=9 HEAD 2>/dev/null || echo "unknown")
+  echo "$name|$head" >> "$STATE.tmp"
+
+  # deploy detection: HEAD moved since previous run
+  prev_head="${PREV[$name]:-}"
+  if [ -n "$prev_head" ] && [ "$prev_head" != "$head" ] && [ "$head" != "unknown" ]; then
+    subj=$(G "$path" log -1 --format=%s 2>/dev/null | head -c 120)
+    n_new=$(G "$path" rev-list --count "$prev_head..$head" 2>/dev/null || echo "?")
+    emit_event deploy "$name" "$prev_head → $head ($n_new коммит(ов): $subj)"
+  fi
+
+  # drift detection vs origin
+  status="clean"
+  detail=""
+  if timeout 30 env GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=10" \
+       git -C "$path" -c safe.directory='*' fetch origin "$branch" --quiet 2>/dev/null; then
+    ahead=$(G "$path" rev-list --count "origin/$branch..HEAD" 2>/dev/null || echo 0)
+    behind=$(G "$path" rev-list --count "HEAD..origin/$branch" 2>/dev/null || echo 0)
+    if [ "$ahead" != "0" ]; then
+      status="local-commits"
+      detail="$ahead локальных коммит(ов) нет в origin/$branch"
+    elif [ "$behind" != "0" ]; then
+      status="behind"
+      detail="отстаёт от origin/$branch на $behind коммит(ов)"
+    fi
+  else
+    status="no-fetch"
+  fi
+
+  # dirty tracked files (untracked noise like .env backups is ignored)
+  dirty=$(G "$path" status --porcelain --untracked-files=no 2>/dev/null | head -3 | wc -l)
+  if [ "$dirty" != "0" ] && [ "$status" = "clean" ]; then
+    status="dirty"
+    detail="изменённые tracked-файлы в рабочей копии"
+  fi
+
+  # drift events fire on state CHANGE only (heads.state stores status via marker line)
+  prev_status="${PREV[status:$name]:-clean}"
+  echo "status:$name|$status" >> "$STATE.tmp"
+  if [ "$status" != "clean" ] && [ "$status" != "no-fetch" ] && [ "$status" != "$prev_status" ]; then
+    emit_event drift "$name" "$status: $detail"
+  fi
+
+  repo_json="$repo_json{\"name\":\"$name\",\"status\":\"$status\",\"head\":\"$head\",\"branch\":\"$branch\",\"detail\":\"$detail\"},"
+done <<< "$REPOS"
+
+mv "$STATE.tmp" "$STATE"
+printf '{"checked_at":%s,"repos":[%s]}\n' "$NOW" "${repo_json%,}" > "$DRIFT_JSON.tmp"
+mv "$DRIFT_JSON.tmp" "$DRIFT_JSON"
+
+# keep events file from growing forever
+if [ -f "$EVENTS" ] && [ "$(stat -c%s "$EVENTS")" -gt 1048576 ]; then
+  tail -n 500 "$EVENTS" > "$EVENTS.tmp" && mv "$EVENTS.tmp" "$EVENTS"
+fi

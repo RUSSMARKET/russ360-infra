@@ -235,6 +235,31 @@ services:
     volumes:
       - glitchtip_uploads:/code/uploads
 
+  # ═════════════════════ INTERACTIVE BOT ═════════════════════
+  # Same telegram bot Grafana delivers alerts through; this container adds the
+  # interactive side (commands, daily 17:20 MSK report, watchdog, deploy feed,
+  # subscription-backed AI answers). Host cron writes deploy/drift data into
+  # /var/lib/russ360-botdata (see ../../scripts/deploy-drift-check.sh).
+  tgbot:
+    build: ./tgbot
+    container_name: obs-tgbot
+    restart: unless-stopped
+    depends_on: [prometheus, loki, grafana]
+    labels:
+      <<: *common-labels
+      tier: bot
+    extra_hosts:
+      - "api.telegram.org:149.154.167.220"
+    environment:
+      TELEGRAM_BOT_TOKEN: ${GF_TELEGRAM_BOT_TOKEN:?set in .env}
+      TG_CHAT_ID: ${TG_CHAT_ID:?set in .env}
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      TZ: Europe/Moscow
+    volumes:
+      - /var/lib/russ360-botdata:/data
+
   # ═════════════════════ SYNTHETIC PROBES ═════════════════════
   blackbox:
     image: prom/blackbox-exporter:v0.25.0
