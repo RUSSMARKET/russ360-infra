@@ -77,10 +77,15 @@ groups:
               conditions:
                 - evaluator: { type: gt, params: [0.01] }
 
+      # Recalibrated 2026-07-02 against a 3-day prod baseline: on a 15m window the
+      # traffic gate flips ~41% of the time and p95 sits above 2.5s ~10% of the time,
+      # so the firing series kept vanishing mid-alert (MissingSeries auto-resolve) and
+      # re-firing an hour later — 30m window + 4s threshold cut that to real
+      # degradations only (>4s ≈ 3% of the window, >5s ≈ 0%).
       - uid: russ360-latency-p95
-        title: 'Request latency p95 > 2.5s (per service, min 3 req/min)'
+        title: 'Request latency p95 > 4s (per service, min 3 req/min over 30m)'
         condition: C
-        for: 10m
+        for: 15m
         noDataState: OK
         execErrState: OK
         labels:
@@ -89,7 +94,7 @@ groups:
           summary: '{{ $labels.service }}/{{ $labels.env }}: p95 latency {{ printf "%.2f" $values.A.Value }}s'
         data:
           - refId: A
-            relativeTimeRange: { from: 600, to: 0 }
+            relativeTimeRange: { from: 1800, to: 0 }
             datasourceUid: PBFA97CFB590B2093
             model:
               refId: A
@@ -97,10 +102,10 @@ groups:
               expr: >
                 (
                   histogram_quantile(0.95, sum by (le,service,env)
-                    (rate(russ360_http_request_duration_seconds_bucket{route!~"api/v1/(recovery|registration).*"}[15m])))
+                    (rate(russ360_http_request_duration_seconds_bucket{route!~"api/v1/(recovery|registration).*"}[30m])))
                 )
                 and
-                (sum by (service,env) (rate(russ360_http_requests_total{route!~"api/v1/(recovery|registration).*"}[15m])) > 0.05)
+                (sum by (service,env) (rate(russ360_http_requests_total{route!~"api/v1/(recovery|registration).*"}[30m])) > 0.05)
           - refId: C
             datasourceUid: __expr__
             model:
@@ -108,7 +113,7 @@ groups:
               type: threshold
               expression: A
               conditions:
-                - evaluator: { type: gt, params: [2.5] }
+                - evaluator: { type: gt, params: [4] }
 
       - uid: russ360-exception-rate
         title: 'Exception rate > 5/min (per service)'
