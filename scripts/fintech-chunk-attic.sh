@@ -20,7 +20,7 @@ set -euo pipefail
 
 PUB="${PUB:-/home/fintech/web/fintech.rusaifin.ru/public_html/.output/public/_nuxt}"
 ATTIC="${ATTIC:-/home/fintech/web/fintech.rusaifin.ru/public_html/.chunk-attic}"
-RETAIN_DAYS="${RETAIN_DAYS:-7}"
+RETAIN_DAYS="${RETAIN_DAYS:-30}"
 LOCK="${LOCK:-/run/fintech-chunk-attic.lock}"
 
 exec 9>"$LOCK"
