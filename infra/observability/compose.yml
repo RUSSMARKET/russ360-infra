@@ -256,6 +256,9 @@ services:
       GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      # Out-of-RU forward proxy for the claude subprocess only (api.anthropic.com is
+      # geo-blocked from timeweb). Empty -> AI calls go direct (and will 403 from RU).
+      ANTHROPIC_PROXY: ${ANTHROPIC_PROXY:-}
       TZ: Europe/Moscow
     volumes:
       - /var/lib/russ360-botdata:/data

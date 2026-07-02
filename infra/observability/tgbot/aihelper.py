@@ -16,6 +16,10 @@ log = logging.getLogger(__name__)
 
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
 AI_TIMEOUT = int(os.environ.get("AI_TIMEOUT", "180"))
+# api.anthropic.com is geo-blocked from the prod host (RU/timeweb); route ONLY the
+# claude subprocess through an out-of-RU forward proxy. Kept off the container-wide
+# env on purpose so the bot's internal Prometheus/Loki/Grafana calls stay direct.
+ANTHROPIC_PROXY = os.environ.get("ANTHROPIC_PROXY")
 
 SYSTEM_CONTEXT = """Ты — ассистент по инфраструктуре платформы Russmarket 360 (полевые продажи: промоутеры, банковские карты, склады).
 Стек: 4 Laravel-сервиса (rusaifin — основной монолит field sales, rusaicore — core-домен, rusaiauth — OAuth2/OIDC SSO, rusaisklad — склад) + 2 Nuxt-фронта. Прод — один сервер, мониторинг Prometheus/Loki/Grafana.
@@ -29,6 +33,10 @@ def available():
 def _run(prompt):
     if not available():
         return None
+    env = {**os.environ, "HOME": os.environ.get("HOME", "/home/bot")}
+    if ANTHROPIC_PROXY:
+        env["HTTPS_PROXY"] = ANTHROPIC_PROXY
+        env["HTTP_PROXY"] = ANTHROPIC_PROXY
     try:
         proc = subprocess.run(
             [CLAUDE_BIN, "-p", prompt, "--model", "sonnet",
@@ -36,7 +44,7 @@ def _run(prompt):
             capture_output=True,
             text=True,
             timeout=AI_TIMEOUT,
-            env={**os.environ, "HOME": os.environ.get("HOME", "/home/bot")},
+            env=env,
         )
         if proc.returncode != 0:
             log.warning("claude CLI rc=%s: %s", proc.returncode, proc.stderr[-500:])
