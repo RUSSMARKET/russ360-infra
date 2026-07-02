@@ -173,7 +173,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>Команды:</b>\n"
         "/status — сводка по сервисам за час\n"
         "/digest — полный отчёт за 24ч (как ежедневный)\n"
-        "/errors <сервис> [минут] — последние ошибки из логов (rusaifin 60 по умолчанию)\n"
+        "/errors &lt;сервис&gt; [минут] — последние ошибки из логов (rusaifin 60 по умолчанию)\n"
         "/top — самые медленные роуты rusaifin за час\n"
         "/alerts — активные алерты\n"
         "/disk — диск/память/load\n"
@@ -432,6 +432,18 @@ async def job_events(context: ContextTypes.DEFAULT_TYPE):
             log.exception("events notify failed")
 
 
+async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Never let a handler exception kill a command silently (2-week unattended run)."""
+    log.exception("handler error", exc_info=context.error)
+    if isinstance(update, Update) and update.effective_message:
+        try:
+            await update.effective_message.reply_text(
+                "⚠️ Не смог выполнить команду (ошибка залогирована). Попробуй ещё раз или /selfcheck"
+            )
+        except Exception:
+            pass
+
+
 async def post_init(app: Application):
     log.info("bot started, AI layer: %s", "on" if aihelper.available() else "off")
 
@@ -450,6 +462,7 @@ def main():
     app.add_handler(CommandHandler("disk", cmd_disk))
     app.add_handler(CommandHandler("selfcheck", cmd_selfcheck))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    app.add_error_handler(on_error)
 
     jq = app.job_queue
     jq.run_daily(job_daily_report, time=REPORT_TIME, name="daily_report")
