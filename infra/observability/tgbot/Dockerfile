@@ -10,7 +10,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN python3 -m venv /venv && /venv/bin/pip install --no-cache-dir -r requirements.txt
 
-COPY *.py .
+COPY *.py ./
 
 # non-root: claude CLI needs a writable HOME
 RUN useradd -m -u 10001 bot && mkdir -p /data && chown bot /data
