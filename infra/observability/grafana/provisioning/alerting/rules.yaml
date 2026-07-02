@@ -276,6 +276,40 @@ groups:
               conditions:
                 - evaluator: { type: gt, params: [0] }
 
+  # Dead-man switch for the interactive bot: delivered by Grafana (independent
+  # path), so it still fires when obs-tgbot itself is down and cannot speak.
+  - orgId: 1
+    name: russ360-bot
+    folder: Russ360
+    interval: 1m
+    rules:
+      - uid: russ360-tgbot-down
+        title: 'obs-tgbot не работает (интерактивный бот умер)'
+        condition: C
+        for: 5m
+        noDataState: Alerting
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Интерактивный бот obs-tgbot не виден cAdvisor — команды/отчёты/watchdog не работают. docker logs obs-tgbot'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: '(time() - max(container_last_seen{name="obs-tgbot"})) or vector(99999)'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [300] }
+
   - orgId: 1
     name: russ360-frontend
     folder: Russ360
