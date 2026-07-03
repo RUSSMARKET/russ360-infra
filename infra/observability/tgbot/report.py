@@ -5,6 +5,7 @@ render() turns it into the deterministic part of the message.
 """
 
 import datetime
+import html
 import json
 import os
 
@@ -12,6 +13,12 @@ import datasources as ds
 
 DATA_DIR = os.environ.get("BOT_DATA_DIR", "/data")
 MSK = datetime.timezone(datetime.timedelta(hours=3))
+
+
+def esc(s):
+    """Escape dynamic strings — commit subjects, alert summaries etc. can contain
+    <...> that would otherwise break Telegram HTML parsing of the whole message."""
+    return html.escape(str(s), quote=False)
 
 
 def _read_events(hours=24):
@@ -75,7 +82,7 @@ def render(data):
         if exc:
             flags.append(f"exc: {exc}")
         flag_s = (" ⚠️ " + ", ".join(flags)) if flags else ""
-        lines.append(f"• {svc}: {req} req, p95 {_fmt_p95(m['p95'])}{flag_s}")
+        lines.append(f"• {esc(svc)}: {req} req, p95 {_fmt_p95(m['p95'])}{flag_s}")
     lines.append("")
 
     # logins
@@ -101,7 +108,7 @@ def render(data):
         lines.append(f"<b>Активные алерты: {len(alerts)}</b> 🔥")
         for a in alerts[:6]:
             tgt = "/".join(x for x in (a["service"], a["env"]) if x)
-            lines.append(f"• {a['name']}{f' ({tgt})' if tgt else ''}")
+            lines.append(f"• {esc(a['name'])}{f' ({esc(tgt)})' if tgt else ''}")
     elif alerts is not None:
         lines.append("<b>Алерты:</b> активных нет ✅")
     else:
@@ -115,14 +122,14 @@ def render(data):
     if deploys:
         lines.append("<b>Деплои за сутки</b> 🚀")
         for e in deploys[:8]:
-            lines.append(f"• {e.get('repo', '?')}: {e.get('detail', '')}")
+            lines.append(f"• {esc(e.get('repo', '?'))}: {esc(e.get('detail', ''))}")
         lines.append("")
     drift = data["drift"] or {}
     drifted = [r for r in drift.get("repos", []) if r.get("status") not in ("clean", "no-fetch")]
     if drifted:
         lines.append("<b>Дрейф репозиториев</b> ⚠️")
         for r in drifted[:6]:
-            lines.append(f"• {r['name']}: {r['status']}")
+            lines.append(f"• {esc(r['name'])}: {esc(r['status'])}")
         lines.append("")
 
     # host
@@ -143,6 +150,6 @@ def render(data):
 
     down = data["targets_down"]
     if down:
-        lines.append("⚠️ <b>Не скрейпятся:</b> " + ", ".join(f"{j}/{e}" for j, e in down))
+        lines.append("⚠️ <b>Не скрейпятся:</b> " + ", ".join(f"{esc(j)}/{esc(e)}" for j, e in down))
 
     return "\n".join(lines)

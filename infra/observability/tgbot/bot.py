@@ -19,6 +19,7 @@ import os
 
 from telegram import Update
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -128,10 +129,16 @@ async def _animate(bot, chat_id, message):
 
 async def send_long(bot, chat_id, text, parse_mode=ParseMode.HTML):
     for chunk_start in range(0, len(text), 4000):
-        await bot.send_message(
-            chat_id, text[chunk_start : chunk_start + 4000],
-            parse_mode=parse_mode, disable_web_page_preview=True,
-        )
+        chunk = text[chunk_start : chunk_start + 4000]
+        try:
+            await bot.send_message(
+                chat_id, chunk, parse_mode=parse_mode, disable_web_page_preview=True,
+            )
+        except BadRequest as e:
+            # Never let a stray unescaped <...> in dynamic content swallow the whole
+            # answer — fall back to plain text so the user still gets the content.
+            log.warning("HTML send failed (%s); resending as plain text", e)
+            await bot.send_message(chat_id, chunk, disable_web_page_preview=True)
 
 
 async def run_with_progress(update, context, work, empty="Пусто."):
