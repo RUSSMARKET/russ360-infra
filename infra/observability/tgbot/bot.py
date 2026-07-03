@@ -28,6 +28,8 @@ from telegram.ext import (
     filters,
 )
 
+import requests
+
 import aihelper
 import datasources as ds
 import report as report_mod
@@ -39,6 +41,8 @@ log = logging.getLogger("tgbot")
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = int(os.environ["TG_CHAT_ID"])
+AGENT_URL = os.environ.get("AGENT_URL", "http://obs-agent:8080")
+AGENT_TIMEOUT = int(os.environ.get("AGENT_TIMEOUT", "255"))
 DATA_DIR = os.environ.get("BOT_DATA_DIR", "/data")
 STATE_PATH = os.path.join(DATA_DIR, "state.json")
 MSK = datetime.timezone(datetime.timedelta(hours=3))
@@ -214,6 +218,22 @@ def fmt_status():
         lines.append("")
         lines.append("Хост: " + ", ".join(bits))
     return "\n".join(lines)
+
+
+def ask_agent(question, context):
+    """Ask the hardened read-only investigator (obs-agent). Returns the answer
+    string, or None if the agent is unreachable/disabled so callers can fall back."""
+    try:
+        r = requests.post(
+            f"{AGENT_URL}/ask",
+            json={"question": question, "context": context},
+            timeout=AGENT_TIMEOUT,
+        )
+        r.raise_for_status()
+        return r.json().get("answer")
+    except Exception as e:
+        log.warning("obs-agent /ask failed: %s", e)
+        return None
 
 
 def build_ai_context():
@@ -435,7 +455,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     def work():
-        answer = aihelper.answer_question(question, build_ai_context())
+        ctx = build_ai_context()
+        answer = ask_agent(question, ctx)
+        if answer is None:  # agent down/unreachable — fall back to the in-bot toolless path
+            answer = aihelper.answer_question(question, ctx)
         return tgformat.render_ai(answer) if answer else "Не смог получить ответ от AI-слоя, попробуй ещё раз или /status"
 
     await run_with_progress(update, context, work)

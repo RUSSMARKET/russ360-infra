@@ -263,6 +263,55 @@ services:
     volumes:
       - /var/lib/russ360-botdata:/data
 
+  # ═════════════════════ READ-ONLY INVESTIGATOR AGENT ═════════════════════
+  # Hardened Claude Code agent with read-only access to prod source code.
+  # obs-tgbot calls it over the internal network (POST /ask) and delivers the
+  # answer to the access-controlled chat. The agent itself has NO telegram token
+  # and NO outbound path except the claude subprocess via the Anthropic proxy.
+  # Prod code is bind-mounted read-only under /prod, SUBDIRECTORIES ONLY — the
+  # repo roots (and thus every .env*) are never mounted; bootstrap/ is excluded
+  # because bootstrap/cache/config.php inlines resolved secrets.
+  agent:
+    build: ./agent
+    container_name: obs-agent
+    restart: unless-stopped
+    labels:
+      <<: *common-labels
+      tier: bot
+    environment:
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      ANTHROPIC_PROXY: ${ANTHROPIC_PROXY:-}
+      AGENT_MODEL: ${AGENT_MODEL:-sonnet}
+      TZ: Europe/Moscow
+    volumes:
+      # rusaifin (host PHP) — code + file logs
+      - /home/fintech/web/server.rusaifin.ru/public_html/app:/prod/rusaifin/app:ro
+      - /home/fintech/web/server.rusaifin.ru/public_html/config:/prod/rusaifin/config:ro
+      - /home/fintech/web/server.rusaifin.ru/public_html/routes:/prod/rusaifin/routes:ro
+      - /home/fintech/web/server.rusaifin.ru/public_html/database:/prod/rusaifin/database:ro
+      - /home/fintech/web/server.rusaifin.ru/public_html/resources:/prod/rusaifin/resources:ro
+      - /home/fintech/web/server.rusaifin.ru/public_html/storage/logs:/prod/rusaifin/storage/logs:ro
+      # rusaicore
+      - /home/Rusaicore/web/server.rusaicore.ru/public_html/app:/prod/rusaicore/app:ro
+      - /home/Rusaicore/web/server.rusaicore.ru/public_html/config:/prod/rusaicore/config:ro
+      - /home/Rusaicore/web/server.rusaicore.ru/public_html/routes:/prod/rusaicore/routes:ro
+      - /home/Rusaicore/web/server.rusaicore.ru/public_html/database:/prod/rusaicore/database:ro
+      - /home/Rusaicore/web/server.rusaicore.ru/public_html/resources:/prod/rusaicore/resources:ro
+      # rusaisklad
+      - /home/Rusaisklad/web/server.rusaisklad.ru/public_html/app:/prod/rusaisklad/app:ro
+      - /home/Rusaisklad/web/server.rusaisklad.ru/public_html/config:/prod/rusaisklad/config:ro
+      - /home/Rusaisklad/web/server.rusaisklad.ru/public_html/routes:/prod/rusaisklad/routes:ro
+      - /home/Rusaisklad/web/server.rusaisklad.ru/public_html/database:/prod/rusaisklad/database:ro
+      - /home/Rusaisklad/web/server.rusaisklad.ru/public_html/resources:/prod/rusaisklad/resources:ro
+      # rusaiauth
+      - /home/Rusaiauth/web/sso.rusaifin.ru/app:/prod/rusaiauth/app:ro
+      - /home/Rusaiauth/web/sso.rusaifin.ru/config:/prod/rusaiauth/config:ro
+      - /home/Rusaiauth/web/sso.rusaifin.ru/routes:/prod/rusaiauth/routes:ro
+      - /home/Rusaiauth/web/sso.rusaifin.ru/database:/prod/rusaiauth/database:ro
+      - /home/Rusaiauth/web/sso.rusaifin.ru/resources:/prod/rusaiauth/resources:ro
+      # infra (monitoring repo)
+      - /root/russ360-infra:/prod/infra:ro
+
   # ═════════════════════ SYNTHETIC PROBES ═════════════════════
   blackbox:
     image: prom/blackbox-exporter:v0.25.0
