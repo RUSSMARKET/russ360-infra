@@ -309,6 +309,10 @@ services:
       - /home/Rusaiauth/web/sso.rusaifin.ru/routes:/prod/rusaiauth/routes:ro
       - /home/Rusaiauth/web/sso.rusaifin.ru/database:/prod/rusaiauth/database:ro
       - /home/Rusaiauth/web/sso.rusaifin.ru/resources:/prod/rusaiauth/resources:ro
+      # frontends (Nuxt source only — src/, no node_modules/.output/dist, no root .env)
+      - /home/fintech/web/fintech.rusaifin.ru/public_html/src:/prod/fintech-front/src:ro
+      - /home/Rusaisklad/web/rusaisklad.ru/public_html/src:/prod/sklad-front/src:ro
+      - /home/Rusaisklad/web/rusaisklad.ru/public_html/components:/prod/sklad-front/components:ro
       # infra (monitoring repo)
       - /root/russ360-infra:/prod/infra:ro
 
