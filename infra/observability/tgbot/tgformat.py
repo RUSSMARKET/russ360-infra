@@ -15,20 +15,12 @@ import re
 
 # ---- typography (run on raw text, before HTML-escaping) --------------------
 
-_ARROWS_R = ("→", "⟶", "⇒", "➜", "➔", "➝", "⇨", "»")
-_ARROWS_L = ("←", "⟵", "⇐", "⇦", "«")
-
-
 def _typography(t):
-    # long dashes -> plain hyphen (the classic AI tell)
+    # long dashes -> plain hyphen (the classic AI tell). Arrow glyphs (→ ← etc.)
+    # are left as-is: Telegram renders them fine, and converting to -> reads as
+    # a plain dash and is misleading.
     for d in ("—", "–", "―", "‒"):
         t = t.replace(d, "-")
-    # arrow glyphs -> ASCII (dev-natural, and survives HTML-escaping cleanly)
-    t = t.replace("↔", "<->").replace("⇔", "<->")
-    for a in _ARROWS_R:
-        t = t.replace(a, "->")
-    for a in _ARROWS_L:
-        t = t.replace(a, "<-")
     # non-breaking / thin spaces -> regular
     t = t.replace(" ", " ").replace(" ", " ").replace(" ", " ")
     return t
