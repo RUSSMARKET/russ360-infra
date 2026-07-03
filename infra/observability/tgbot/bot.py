@@ -13,10 +13,12 @@ calls sendMessage, so polling does not conflict). Features:
 import asyncio
 import datetime
 import html
+import inspect
 import json
 import logging
 import os
 import time
+import uuid
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -121,24 +123,59 @@ def _next_phrase():
     return phrase
 
 
-async def _animate(bot, chat_id, message):
-    """Advance the placeholder phrase + refresh 'typing…' every 10s until cancelled
-    (the Telegram typing indicator expires after ~5s, so refresh faster than that)."""
+def _read_last_crumb(path):
+    """Latest live breadcrumb the agent wrote for this request, or None."""
+    if not path:
+        return None
+    try:
+        with open(path) as f:
+            lines = [ln for ln in f if ln.strip()]
+        if lines:
+            return json.loads(lines[-1]).get("text")
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    return None
+
+
+async def _animate(bot, chat_id, message, req_id=None):
+    """Live progress. Filler phrases cycle every 10s UNTIL the first real breadcrumb
+    from the agent appears; from then on the placeholder shows what the agent is
+    actually doing (📖 читаю…, 🗄 запрос к БД…), throttled to respect Telegram limits."""
+    progress_path = os.path.join(MEM_DIR, "progress", f"{req_id}.jsonl") if req_id else None
+    last_shown, got_crumb = None, False
+    last_edit = 0.0
+    last_phrase = time.monotonic()
     try:
         while True:
-            await asyncio.sleep(5)
+            await asyncio.sleep(1.5)
             try:
                 await bot.send_chat_action(chat_id, "typing")
             except Exception:
                 pass
-            await asyncio.sleep(5)  # 10s total between phrase changes
-            try:
-                await bot.send_chat_action(chat_id, "typing")
-                await message.edit_text(_next_phrase())
-            except Exception:
-                pass  # message unchanged / rate limit — keep going
+            now = time.monotonic()
+            crumb = _read_last_crumb(progress_path)
+            if crumb:
+                if crumb != last_shown and now - last_edit > 1.2:
+                    last_shown, got_crumb, last_edit = crumb, True, now
+                    try:
+                        await message.edit_text("… " + crumb)
+                    except Exception:
+                        pass
+            elif not got_crumb and now - last_phrase >= 10:
+                last_phrase = now
+                try:
+                    await message.edit_text(_next_phrase())
+                except Exception:
+                    pass
     except asyncio.CancelledError:
         pass
+
+
+def _work_takes_arg(work):
+    try:
+        return len(inspect.signature(work).parameters) >= 1
+    except (TypeError, ValueError):
+        return False
 
 
 async def send_long(bot, chat_id, text, parse_mode=ParseMode.HTML):
@@ -165,10 +202,15 @@ async def run_with_progress(update, context, work, empty="Пусто."):
     routing through here.
     """
     chat_id = update.effective_chat.id
+    req_id = uuid.uuid4().hex[:16]
     placeholder = await update.message.reply_text(_next_phrase())
-    anim = asyncio.create_task(_animate(context.bot, chat_id, placeholder))
+    anim = asyncio.create_task(_animate(context.bot, chat_id, placeholder, req_id))
     try:
-        result = await asyncio.to_thread(work)
+        # AI workers accept the req_id (to stream breadcrumbs); plain command workers don't.
+        if _work_takes_arg(work):
+            result = await asyncio.to_thread(work, req_id)
+        else:
+            result = await asyncio.to_thread(work)
     except Exception:
         log.exception("command work failed")
         result = "⚠️ Ошибка при выполнении команды (залогировано). Попробуй ещё раз или /selfcheck"
@@ -229,13 +271,14 @@ def fmt_status():
     return "\n".join(lines)
 
 
-def ask_agent(question, context, session=None, images=None):
+def ask_agent(question, context, session=None, images=None, req_id=None):
     """Ask the hardened read-only investigator (obs-agent). Returns the answer
     string, or None if the agent is unreachable/disabled so callers can fall back."""
     try:
         r = requests.post(
             f"{AGENT_URL}/ask",
-            json={"question": question, "context": context, "session": session, "images": images},
+            json={"question": question, "context": context, "session": session,
+                  "images": images, "req_id": req_id},
             timeout=AGENT_TIMEOUT,
         )
         r.raise_for_status()
@@ -581,10 +624,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("AI-режим выключен (нет токена). Доступны команды — /help")
         return
 
-    def work():
+    def work(req_id):
         ctx = build_ai_context()
         session = _session_context(chat.id)
-        answer = ask_agent(question, ctx, session)
+        answer = ask_agent(question, ctx, session, req_id=req_id)
         if answer is None:  # agent down/unreachable — fall back to the in-bot toolless path
             answer = aihelper.answer_question(question, ctx)
         if answer:
@@ -635,10 +678,10 @@ async def on_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         question += f" (приложен {placeholder} — я пока умею смотреть только фото)"
     log.info("engaging(media): chat=%s kind=%s img=%d", chat.id, kind, len(images))
 
-    def work():
+    def work(req_id):
         ctx = build_ai_context()
         session = _session_context(chat.id)
-        answer = ask_agent(question, ctx, session, images)
+        answer = ask_agent(question, ctx, session, images, req_id=req_id)
         if answer is None:
             answer = aihelper.answer_question(question, ctx)
         if answer:

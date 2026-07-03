@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import subprocess
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -219,7 +220,44 @@ def run_consolidation():
     return f"новых устойчивых фактов: {len(added)}" if added else "новых устойчивых фактов не выделено"
 
 
-def run_claude(prompt):
+def _crumb(block):
+    """Human-friendly breadcrumb for a tool_use event, shown live in the chat."""
+    name = block.get("name", "")
+    inp = block.get("input", {}) or {}
+    if name.endswith("__metrics"):
+        return "⚙️ смотрю метрики"
+    if name.endswith("__logs"):
+        return f"📄 читаю логи {inp.get('service', '')}".strip()
+    if name.endswith("__list_metrics"):
+        return "⚙️ ищу метрику"
+    if name.endswith("__query"):
+        return f"🗄 запрос к БД {inp.get('datasource', '')}".strip()
+    if name.endswith("__sms_stats") or name.endswith("__sms_events"):
+        return "📨 смотрю SMS-аналитику"
+    if name.endswith("__recall"):
+        return "🧠 вспоминаю"
+    if name.endswith("__remember"):
+        return "🧠 запоминаю"
+    if name == "Read":
+        fp = inp.get("file_path", "")
+        return f"📖 читаю {os.path.basename(fp)}" if fp else "📖 читаю файл"
+    if name == "Grep":
+        pat = str(inp.get("pattern", ""))[:40]
+        return f"🔎 ищу в коде «{pat}»" if pat else "🔎 ищу в коде"
+    if name == "Glob":
+        return "🔎 ищу файлы"
+    return f"🔧 {name.split('__')[-1]}"
+
+
+def _write_progress(path, text):
+    try:
+        with open(path, "a") as f:
+            f.write(json.dumps({"ts": int(time.time()), "text": text}, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def run_claude(prompt, req_id=None):
     if not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
         log.warning("no CLAUDE_CODE_OAUTH_TOKEN — agent disabled")
         return None
@@ -230,8 +268,15 @@ def run_claude(prompt):
         # the MCP obs server (spawned by claude, inherits this env) must reach the
         # internal obs stack directly, not via the Anthropic proxy.
         env["NO_PROXY"] = "obs-prometheus,obs-loki,obs-grafana,localhost,127.0.0.1"
+    progress_path = None
+    if req_id:
+        try:
+            os.makedirs(os.path.join(MEM_DIR, "progress"), exist_ok=True)
+            progress_path = os.path.join(MEM_DIR, "progress", f"{req_id}.jsonl")
+        except Exception:
+            progress_path = None
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             [
                 CLAUDE_BIN, "-p", prompt,
                 "--model", MODEL,
@@ -241,19 +286,50 @@ def run_claude(prompt):
                 "--strict-mcp-config",
                 "--allowedTools", ALLOWED_TOOLS,
                 "--disallowedTools", DISALLOWED_TOOLS,
+                "--output-format", "stream-json", "--verbose",
             ],
-            capture_output=True, text=True, timeout=AI_TIMEOUT, env=env, cwd="/work",
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, cwd="/work",
         )
-        if proc.returncode != 0:
-            log.warning("claude rc=%s: %s", proc.returncode, proc.stderr[-800:])
-            return None
-        return proc.stdout.strip() or None
-    except subprocess.TimeoutExpired:
-        log.warning("claude timed out after %ss", AI_TIMEOUT)
-        return None
     except FileNotFoundError:
         log.warning("claude CLI not found")
         return None
+
+    # stream-json emits newline-delimited events; relay tool_use as breadcrumbs and
+    # capture the final answer from the terminal `result` event.
+    killer = threading.Timer(AI_TIMEOUT, proc.kill)
+    killer.start()
+    final = None
+    try:
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                ev = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            etype = ev.get("type")
+            if etype == "assistant":
+                for b in ev.get("message", {}).get("content", []):
+                    if b.get("type") == "tool_use" and progress_path:
+                        _write_progress(progress_path, _crumb(b))
+            elif etype == "result":
+                final = ev.get("result")
+    finally:
+        killer.cancel()
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            proc.kill()
+        if progress_path:
+            try:
+                os.remove(progress_path)
+            except OSError:
+                pass
+    if final is None:
+        err = ((proc.stderr.read() if proc.stderr else "") or "")[-400:]
+        log.warning("claude stream: no result (rc=%s) %s", proc.returncode, err)
+    return final
 
 
 def run_claude_plain(prompt):
@@ -318,9 +394,10 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "no question"})
             return
         log.info("ask: %r", question[:80])
-        answer = run_claude(build_prompt(
-            question, body.get("context"), body.get("session"), body.get("images"),
-        ))
+        answer = run_claude(
+            build_prompt(question, body.get("context"), body.get("session"), body.get("images")),
+            body.get("req_id"),
+        )
         self._json(200, {"answer": answer})
 
     def log_message(self, *args):
