@@ -18,6 +18,9 @@ networks:
   rusaisklad_prod_net:
     external: true
     name: rusaisklad_back_prod_app-network
+  rusaiauth_prod_net:
+    external: true
+    name: rusaiauth_back_prod_app-network
 
 volumes:
   prometheus_data:
@@ -286,13 +289,17 @@ services:
     labels:
       <<: *common-labels
       tier: bot
-    networks: [default, rusaicore_prod_net, rusaisklad_prod_net]
+    networks: [default, rusaicore_prod_net, rusaisklad_prod_net, rusaiauth_prod_net]
     environment:
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       ANTHROPIC_PROXY: ${ANTHROPIC_PROXY:-}
       AGENT_MODEL: ${AGENT_MODEL:-sonnet}
       # SELECT-only DB user (created on prod, Phase 3); empty -> db.query disabled.
       DB_RO_PASSWORD: ${DB_RO_PASSWORD:-}
+      # read-only client_credentials for rusaiauth SMS analytics (Phase 4); the tool
+      # exposes only GET sms endpoints. Empty -> sms tools disabled.
+      OBS_AGENT_CLIENT_ID: ${OBS_AGENT_CLIENT_ID:-}
+      OBS_AGENT_CLIENT_SECRET: ${OBS_AGENT_CLIENT_SECRET:-}
       TZ: Europe/Moscow
     volumes:
       # read-only SELECT access to host MySQL (fintech_base) via socket

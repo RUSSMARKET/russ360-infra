@@ -39,7 +39,8 @@ MCP_CONFIG = os.environ.get("MCP_CONFIG", "/app/mcp.json")
 ALLOWED_TOOLS = (
     "Read,Grep,Glob,"
     "mcp__obs__metrics,mcp__obs__logs,mcp__obs__list_metrics,"
-    "mcp__db__query"
+    "mcp__db__query,"
+    "mcp__auth__sms_stats,mcp__auth__sms_events"
 )
 DISALLOWED_TOOLS = "Bash,Edit,Write,WebFetch,WebSearch,NotebookEdit"
 
@@ -51,6 +52,7 @@ SYSTEM_CONTEXT = """Ты — read-only SRE-агент платформы Russmar
 2. Метрики — mcp__obs__metrics(promql): любой PromQL к Prometheus. list_metrics(prefix) — найти метрику.
 3. Логи — mcp__obs__logs(service, filter, minutes): строки из Loki по сервису.
 4. БД прода (read-only SELECT) — mcp__db__query(datasource, sql): fintech_base (MySQL rusaifin — промоутеры/смены/карты/оформление), rusaicore_prod (PG Core — employees/projects/memberships/locations), rusaisklad_prod_db (PG склад — остатки/перемещения/инвентаризации). Схему смотри через information_schema. В БД есть PII — это ок. (auth-БД недоступна намеренно.)
+5. SMS-аналитика OTP (rusaiauth) — mcp__auth__sms_stats(date_from,date_to) агрегаты доставки, mcp__auth__sms_events(...) события (телефоны маскированы, кода нет). Даты YYYY-MM-DD. Для вопросов про доставку OTP/входы по SMS.
 
 Когда вопрос про поведение кода/роуты/логику — НЕ гадай, сходи Grep/Glob/Read, отвечай по факту, указывай файл:строку.
 Когда вопрос про метрики/латенси/ошибки/тренды — не ограничивайся снапшотом ниже, сам дотяни нужное через metrics()/logs().

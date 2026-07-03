@@ -20,7 +20,7 @@ RUN useradd -m -u 10002 agent \
     && chown agent:agent /work
 
 WORKDIR /work
-COPY agent.py mcp_obs.py mcp_db.py mcp.json /app/
+COPY agent.py mcp_obs.py mcp_db.py mcp_endpoints.py mcp.json /app/
 
 ENV HOME=/home/agent
 USER agent
