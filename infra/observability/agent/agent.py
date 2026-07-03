@@ -220,32 +220,43 @@ def run_consolidation():
     return f"новых устойчивых фактов: {len(added)}" if added else "новых устойчивых фактов не выделено"
 
 
+def _short_path(p):
+    parts = [x for x in (p or "").split("/") if x]
+    return "/".join(parts[-3:]) if len(parts) > 3 else (p or "")
+
+
 def _crumb(block):
-    """Human-friendly breadcrumb for a tool_use event, shown live in the chat."""
+    """Human-friendly breadcrumb for a tool_use event, with the actual parameters
+    (PromQL/SQL/file/pattern) so the live log reads like a real investigation."""
     name = block.get("name", "")
     inp = block.get("input", {}) or {}
     if name.endswith("__metrics"):
-        return "⚙️ смотрю метрики"
+        return "⚙️ metrics: " + str(inp.get("promql", ""))[:80]
     if name.endswith("__logs"):
-        return f"📄 читаю логи {inp.get('service', '')}".strip()
+        svc, flt = inp.get("service", ""), str(inp.get("filter", ""))
+        return f"📄 логи {svc}" + (f" |~ {flt[:45]}" if flt else "")
     if name.endswith("__list_metrics"):
-        return "⚙️ ищу метрику"
+        return "⚙️ поиск метрики: " + str(inp.get("prefix", ""))[:40]
     if name.endswith("__query"):
-        return f"🗄 запрос к БД {inp.get('datasource', '')}".strip()
-    if name.endswith("__sms_stats") or name.endswith("__sms_events"):
-        return "📨 смотрю SMS-аналитику"
+        return f"🗄 SQL {inp.get('datasource', '')}: " + " ".join(str(inp.get("sql", "")).split())[:70]
+    if name.endswith("__sms_stats"):
+        return "📨 SMS-статистика"
+    if name.endswith("__sms_events"):
+        return "📨 SMS-события"
     if name.endswith("__recall"):
-        return "🧠 вспоминаю"
+        return "🧠 вспоминаю: " + str(inp.get("query", ""))[:40]
     if name.endswith("__remember"):
-        return "🧠 запоминаю"
+        return "🧠 запоминаю факт"
     if name == "Read":
         fp = inp.get("file_path", "")
-        return f"📖 читаю {os.path.basename(fp)}" if fp else "📖 читаю файл"
+        return "📖 читаю " + _short_path(fp) if fp else "📖 читаю файл"
     if name == "Grep":
-        pat = str(inp.get("pattern", ""))[:40]
-        return f"🔎 ищу в коде «{pat}»" if pat else "🔎 ищу в коде"
+        pat, path = str(inp.get("pattern", ""))[:45], inp.get("path", "")
+        return f"🔎 grep «{pat}»" + (f" в {_short_path(path)}" if path else "")
     if name == "Glob":
-        return "🔎 ищу файлы"
+        return "🔎 файлы: " + str(inp.get("pattern", ""))[:45]
+    if name == "ToolSearch":
+        return "🔍 подбираю инструменты"
     return f"🔧 {name.split('__')[-1]}"
 
 
@@ -311,8 +322,16 @@ def run_claude(prompt, req_id=None):
             etype = ev.get("type")
             if etype == "assistant":
                 for b in ev.get("message", {}).get("content", []):
-                    if b.get("type") == "tool_use" and progress_path:
+                    if not progress_path:
+                        continue
+                    btype = b.get("type")
+                    if btype == "tool_use":
                         _write_progress(progress_path, _crumb(b))
+                    elif btype == "text":
+                        # the model's own narration between tool calls (💭), if any
+                        txt = (b.get("text") or "").strip().split("\n")[0][:130]
+                        if txt:
+                            _write_progress(progress_path, "💭 " + txt)
             elif etype == "result":
                 final = ev.get("result")
     finally:

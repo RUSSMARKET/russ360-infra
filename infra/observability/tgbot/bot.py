@@ -123,24 +123,32 @@ def _next_phrase():
     return phrase
 
 
-def _read_last_crumb(path):
-    """Latest live breadcrumb the agent wrote for this request, or None."""
+CRUMB_LINES = 7  # how many recent steps to show (transcript-style)
+
+
+def _read_last_crumbs(path, n=CRUMB_LINES):
+    """Last n live breadcrumbs the agent wrote for this request (oldest→newest)."""
     if not path:
-        return None
+        return []
     try:
         with open(path) as f:
             lines = [ln for ln in f if ln.strip()]
-        if lines:
-            return json.loads(lines[-1]).get("text")
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return None
-    return None
+    except (FileNotFoundError, OSError):
+        return []
+    out = []
+    for ln in lines[-n:]:
+        try:
+            out.append(json.loads(ln).get("text", ""))
+        except json.JSONDecodeError:
+            continue
+    return [t for t in out if t]
 
 
 async def _animate(bot, chat_id, message, req_id=None):
-    """Live progress. Filler phrases cycle every 10s UNTIL the first real breadcrumb
-    from the agent appears; from then on the placeholder shows what the agent is
-    actually doing (📖 читаю…, 🗄 запрос к БД…), throttled to respect Telegram limits."""
+    """Live progress. Filler phrases cycle every 10s UNTIL the first real step from
+    the agent appears; from then on the placeholder shows a growing transcript of
+    what the agent is actually doing (📖 читаю…, 🗄 SQL…, 💭 наррация), like Claude
+    Code, throttled to respect Telegram edit limits."""
     progress_path = os.path.join(MEM_DIR, "progress", f"{req_id}.jsonl") if req_id else None
     last_shown, got_crumb = None, False
     last_edit = 0.0
@@ -153,12 +161,13 @@ async def _animate(bot, chat_id, message, req_id=None):
             except Exception:
                 pass
             now = time.monotonic()
-            crumb = _read_last_crumb(progress_path)
-            if crumb:
-                if crumb != last_shown and now - last_edit > 1.2:
-                    last_shown, got_crumb, last_edit = crumb, True, now
+            crumbs = _read_last_crumbs(progress_path)
+            if crumbs:
+                view = "\n".join(crumbs)[:3500]
+                if view != last_shown and now - last_edit > 1.2:
+                    last_shown, got_crumb, last_edit = view, True, now
                     try:
-                        await message.edit_text("… " + crumb)
+                        await message.edit_text(view)
                     except Exception:
                         pass
             elif not got_crumb and now - last_phrase >= 10:
