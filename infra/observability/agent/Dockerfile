@@ -13,7 +13,7 @@ RUN npm install -g @anthropic-ai/claude-code
 
 # venv for the MCP servers (FastMCP) + HTTP/DB clients
 RUN python3 -m venv /venv \
-    && /venv/bin/pip install --no-cache-dir mcp requests pymysql psycopg2-binary
+    && /venv/bin/pip install --no-cache-dir mcp requests pymysql cryptography psycopg2-binary
 
 RUN useradd -m -u 10002 agent \
     && mkdir -p /work \
