@@ -11,16 +11,16 @@ RUN apt-get update \
 
 RUN npm install -g @anthropic-ai/claude-code
 
-# venv for the MCP obs server (FastMCP) + its HTTP client
+# venv for the MCP servers (FastMCP) + HTTP/DB clients
 RUN python3 -m venv /venv \
-    && /venv/bin/pip install --no-cache-dir mcp requests
+    && /venv/bin/pip install --no-cache-dir mcp requests pymysql psycopg2-binary
 
 RUN useradd -m -u 10002 agent \
     && mkdir -p /work \
     && chown agent:agent /work
 
 WORKDIR /work
-COPY agent.py mcp_obs.py mcp.json /app/
+COPY agent.py mcp_obs.py mcp_db.py mcp.json /app/
 
 ENV HOME=/home/agent
 USER agent

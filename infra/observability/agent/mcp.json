@@ -3,6 +3,10 @@
     "obs": {
       "command": "/venv/bin/python",
       "args": ["/app/mcp_obs.py"]
+    },
+    "db": {
+      "command": "/venv/bin/python",
+      "args": ["/app/mcp_db.py"]
     }
   }
 }
