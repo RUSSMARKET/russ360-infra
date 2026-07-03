@@ -273,6 +273,8 @@ services:
       TZ: Europe/Moscow
     volumes:
       - /var/lib/russ360-botdata:/data
+      # shared memory volume — bot auto-captures episodic Q/A here for the agent
+      - /var/lib/russ360-agentmem:/memory
 
   # ═════════════════════ READ-ONLY INVESTIGATOR AGENT ═════════════════════
   # Hardened Claude Code agent with read-only access to prod source code.

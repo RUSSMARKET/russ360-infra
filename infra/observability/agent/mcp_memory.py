@@ -13,15 +13,16 @@ import time
 from mcp.server.fastmcp import FastMCP
 
 MEM_DIR = os.environ.get("MEM_DIR", "/memory")
-NOTES = os.path.join(MEM_DIR, "notes.jsonl")
+DURABLE = os.path.join(MEM_DIR, "durable.jsonl")
+EPISODIC = os.path.join(MEM_DIR, "episodic.jsonl")
 
 mcp = FastMCP("memory")
 
 
-def _load():
+def _load(path):
     notes = []
     try:
-        with open(NOTES) as f:
+        with open(path) as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -51,8 +52,9 @@ def remember(text: str, tags: str = "") -> str:
         "ts": int(time.time()),
         "tags": [t.strip() for t in tags.split(",") if t.strip()],
         "text": text[:1000],
+        "src": "agent",
     }
-    with open(NOTES, "a") as f:
+    with open(DURABLE, "a") as f:
         f.write(json.dumps(note, ensure_ascii=False) + "\n")
     return "Запомнил."
 
@@ -64,7 +66,15 @@ def recall(query: str = "", limit: int = 20) -> str:
     Возвращает до limit заметок, новые сверху. Полезно, когда дайджест памяти в контексте
     не покрыл нужное — можно поискать глубже по ключевому слову.
     """
-    notes = _load()
+    durable = _load(DURABLE)
+    episodic = _load(EPISODIC)
+    # unify: episodic entries surface their question+answer as searchable text
+    notes = durable + [
+        {"ts": e.get("ts", 0), "tags": ["episodic"],
+         "text": (e.get("q", "") + " → " + e.get("a", ""))[:400]}
+        for e in episodic
+    ]
+    notes.sort(key=lambda n: n.get("ts", 0))
     if query:
         q = query.lower()
         notes = [

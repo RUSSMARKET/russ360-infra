@@ -16,6 +16,7 @@ import html
 import json
 import logging
 import os
+import time
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -45,8 +46,14 @@ AGENT_URL = os.environ.get("AGENT_URL", "http://obs-agent:8080")
 AGENT_TIMEOUT = int(os.environ.get("AGENT_TIMEOUT", "255"))
 DATA_DIR = os.environ.get("BOT_DATA_DIR", "/data")
 STATE_PATH = os.path.join(DATA_DIR, "state.json")
+MEM_DIR = os.environ.get("MEM_DIR", "/memory")  # shared with obs-agent (episodic capture)
 MSK = datetime.timezone(datetime.timedelta(hours=3))
 REPORT_TIME = datetime.time(hour=17, minute=20, tzinfo=MSK)
+
+# A chat "session" is the run of messages with no gap longer than this; any activity
+# (including colleagues talking to each other) keeps it alive, a longer silence starts fresh.
+SESSION_GAP = int(os.environ.get("SESSION_GAP_SEC", "1800"))  # 30 min
+SESSION_MAX_MSGS = 25
 
 
 # ---- state ---------------------------------------------------------------
@@ -220,13 +227,13 @@ def fmt_status():
     return "\n".join(lines)
 
 
-def ask_agent(question, context, history=None):
+def ask_agent(question, context, session=None):
     """Ask the hardened read-only investigator (obs-agent). Returns the answer
     string, or None if the agent is unreachable/disabled so callers can fall back."""
     try:
         r = requests.post(
             f"{AGENT_URL}/ask",
-            json={"question": question, "context": context, "history": history},
+            json={"question": question, "context": context, "session": session},
             timeout=AGENT_TIMEOUT,
         )
         r.raise_for_status()
@@ -236,29 +243,48 @@ def ask_agent(question, context, history=None):
         return None
 
 
-# ---- per-chat conversation memory (thread continuity) ---------------------
+# ---- ambient session buffer (thread continuity, activity-based) -----------
 
-CONV_MAX = 6  # turns kept per chat
-
-
-def _conv_history_str(chat_id):
-    conv = load_state().get("conversations", {}).get(str(chat_id), [])
-    if not conv:
-        return ""
-    lines = []
-    for turn in conv[-CONV_MAX:]:
-        lines.append("В: " + turn.get("q", "")[:300])
-        lines.append("О: " + turn.get("a", "")[:500])
-    return "\n".join(lines)
-
-
-def _conv_append(chat_id, q, a):
+def _buffer_append(chat_id, who, text, bot=False):
+    """Record every chat message (addressed to the bot or not) so the bot can pick
+    up the surrounding conversation when it's finally engaged."""
     st = load_state()
-    conv = st.setdefault("conversations", {})
-    lst = conv.setdefault(str(chat_id), [])
-    lst.append({"q": q[:500], "a": a[:1500]})
-    conv[str(chat_id)] = lst[-CONV_MAX:]
+    sessions = st.setdefault("sessions", {})
+    buf = sessions.setdefault(str(chat_id), [])
+    buf.append({"ts": int(time.time()), "who": who, "text": text[:400], "bot": bot})
+    cutoff = int(time.time()) - 6 * 3600
+    sessions[str(chat_id)] = [m for m in buf if m["ts"] >= cutoff][-60:]
     save_state(st)
+
+
+def _session_context(chat_id):
+    """Author-tagged current session = messages since the last gap > SESSION_GAP.
+    Any activity resets the gap, so an ongoing discussion stays in context and a
+    long silence starts a fresh thread automatically (no manual reset needed)."""
+    buf = load_state().get("sessions", {}).get(str(chat_id), [])
+    if not buf:
+        return ""
+    sess, prev = [], None
+    for m in buf:
+        if prev is not None and m["ts"] - prev > SESSION_GAP:
+            sess = []  # silence longer than the gap -> new session
+        sess.append(m)
+        prev = m["ts"]
+    sess = sess[-SESSION_MAX_MSGS:]
+    return "\n".join(f'{m["who"]}: {m["text"][:200]}' for m in sess)
+
+
+def _episodic_append(chat_id, q, a):
+    """Auto-capture the Q/A into shared episodic memory for the daily consolidator."""
+    try:
+        os.makedirs(MEM_DIR, exist_ok=True)
+        with open(os.path.join(MEM_DIR, "episodic.jsonl"), "a") as f:
+            f.write(json.dumps(
+                {"ts": int(time.time()), "chat": str(chat_id), "q": q[:400], "a": a[:600]},
+                ensure_ascii=False,
+            ) + "\n")
+    except Exception as e:
+        log.warning("episodic write failed: %s", e)
 
 
 def build_ai_context():
@@ -299,7 +325,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/alerts — активные алерты\n"
         "/disk — диск/память/load\n"
         "/selfcheck — здоровье самого мониторинга\n"
-        "/forget — забыть контекст диалога в этом чате\n"
+        "/forget — сбросить контекст беседы (обычно сбрасывается сам после паузы)\n"
         "/help — это сообщение" + ai_note,
         parse_mode=ParseMode.HTML,
     )
@@ -309,11 +335,13 @@ async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await allowed(update, context):
         return
     st = load_state()
-    conv = st.get("conversations", {})
-    if str(update.effective_chat.id) in conv:
-        del conv[str(update.effective_chat.id)]
+    sessions = st.get("sessions", {})
+    if str(update.effective_chat.id) in sessions:
+        del sessions[str(update.effective_chat.id)]
         save_state(st)
-    await update.message.reply_text("Забыл контекст этого чата 🧹 (долгую память это не трогает)")
+    await update.message.reply_text(
+        "Сбросил контекст беседы 🧹 (обычно он сбрасывается сам после паузы; долгую память не трогаю)"
+    )
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -447,6 +475,12 @@ async def cmd_selfcheck(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---- free-text (AI) --------------------------------------------------------
 
+def _display_name(user):
+    if user is None:
+        return "кто-то"
+    return user.first_name or user.username or f"id{user.id}"
+
+
 def _mentions_bot(msg, me):
     """True if the message @mentions the bot — matched via entities (robust to
     formatting) with a plain-substring fallback."""
@@ -476,12 +510,15 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     mentioned = _mentions_bot(msg, me) if me else False
 
-    if chat.id == CHAT_ID:
-        if not (is_reply_to_bot or mentioned):
-            return  # group chatter the bot isn't addressed in — ignore quietly
-        question = msg.text.replace(f"@{me}", "").strip() if me else msg.text.strip()
-    else:
-        question = msg.text.strip()
+    # Record EVERY message into the session buffer first — including colleagues
+    # talking among themselves. This keeps the session alive (resets the gap) and
+    # gives the bot the surrounding context when it's eventually addressed.
+    who = _display_name(update.effective_user)
+    _buffer_append(chat.id, who, msg.text)
+
+    if chat.id == CHAT_ID and not (is_reply_to_bot or mentioned):
+        return  # not addressed — captured as ambient context, nothing to answer
+    question = msg.text.replace(f"@{me}", "").strip() if me else msg.text.strip()
     log.info("engaging: chat=%s reply=%s mention=%s q=%r",
              chat.id, is_reply_to_bot, mentioned, question[:60])
 
@@ -493,12 +530,13 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     def work():
         ctx = build_ai_context()
-        history = _conv_history_str(chat.id)
-        answer = ask_agent(question, ctx, history)
+        session = _session_context(chat.id)
+        answer = ask_agent(question, ctx, session)
         if answer is None:  # agent down/unreachable — fall back to the in-bot toolless path
             answer = aihelper.answer_question(question, ctx)
         if answer:
-            _conv_append(chat.id, question, answer)
+            _buffer_append(chat.id, "бот", answer, bot=True)
+            _episodic_append(chat.id, question, answer)
         return tgformat.render_ai(answer) if answer else "Не смог получить ответ от AI-слоя, попробуй ещё раз или /status"
 
     await run_with_progress(update, context, work)
@@ -533,6 +571,22 @@ async def job_daily_report(context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(CHAT_ID, "⚠️ Не смог собрать дневной отчёт, см. логи obs-tgbot")
         except Exception:
             pass
+    await _consolidate_memory(context)
+
+
+async def _consolidate_memory(context: ContextTypes.DEFAULT_TYPE):
+    """Trigger the agent's daily memory consolidation and post what it learned."""
+    try:
+        r = await asyncio.to_thread(
+            lambda: requests.post(f"{AGENT_URL}/consolidate", timeout=AGENT_TIMEOUT)
+        )
+        summary = r.json().get("summary")
+        if summary:
+            await context.bot.send_message(
+                CHAT_ID, "🧠 <b>Память за сутки</b>\n" + esc(summary), parse_mode=ParseMode.HTML
+            )
+    except Exception:
+        log.warning("memory consolidation failed")
 
 
 async def job_watchdog(context: ContextTypes.DEFAULT_TYPE):
