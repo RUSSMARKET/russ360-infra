@@ -30,6 +30,7 @@ CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
 MODEL = os.environ.get("AGENT_MODEL", "sonnet")
 AI_TIMEOUT = int(os.environ.get("AI_TIMEOUT", "240"))
 CODE_ROOT = os.environ.get("CODE_ROOT", "/prod")
+MEDIA_ROOT = os.environ.get("MEDIA_ROOT", "/media")  # ro: photos the bot downloaded
 PORT = int(os.environ.get("AGENT_PORT", "8080"))
 # api.anthropic.com is geo-blocked from the prod host; the claude subprocess (and only
 # it) is routed through the out-of-RU forward proxy. Kept off the container env so nothing
@@ -143,8 +144,15 @@ def _memory_block():
     return "\n\n".join(parts)
 
 
-def build_prompt(question, context, session=None):
+def build_prompt(question, context, session=None, images=None):
     parts = [SYSTEM_CONTEXT.format(code_root=CODE_ROOT)]
+
+    if images:
+        parts.append(
+            "\nК сообщению приложены изображения (например скриншот ошибки/дашборда). "
+            "ОБЯЗАТЕЛЬНО посмотри каждое через инструмент Read ПЕРЕД ответом, опиши что на нём "
+            "и учти в разборе:\n" + "\n".join("- " + p for p in images)
+        )
 
     mem = _memory_block()
     if mem:
@@ -228,6 +236,7 @@ def run_claude(prompt):
                 CLAUDE_BIN, "-p", prompt,
                 "--model", MODEL,
                 "--add-dir", CODE_ROOT,
+                "--add-dir", MEDIA_ROOT,
                 "--mcp-config", MCP_CONFIG,
                 "--strict-mcp-config",
                 "--allowedTools", ALLOWED_TOOLS,
@@ -309,7 +318,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "no question"})
             return
         log.info("ask: %r", question[:80])
-        answer = run_claude(build_prompt(question, body.get("context"), body.get("session")))
+        answer = run_claude(build_prompt(
+            question, body.get("context"), body.get("session"), body.get("images"),
+        ))
         self._json(200, {"answer": answer})
 
     def log_message(self, *args):

@@ -275,6 +275,8 @@ services:
       - /var/lib/russ360-botdata:/data
       # shared memory volume — bot auto-captures episodic Q/A here for the agent
       - /var/lib/russ360-agentmem:/memory
+      # shared media volume — bot downloads addressed photos here for the agent to view
+      - /var/lib/russ360-agentmedia:/media
 
   # ═════════════════════ READ-ONLY INVESTIGATOR AGENT ═════════════════════
   # Hardened Claude Code agent with read-only access to prod source code.
@@ -306,6 +308,8 @@ services:
     volumes:
       # agent's own durable memory (writable — the ONLY writable path; prod code is ro)
       - /var/lib/russ360-agentmem:/memory
+      # photos the bot downloaded, read-only for the agent's Read tool
+      - /var/lib/russ360-agentmedia:/media:ro
       # read-only SELECT access to host MySQL (fintech_base) via socket
       - /run/mysqld/mysqld.sock:/run/mysqld/mysqld.sock
       # rusaifin (host PHP) — code + file logs

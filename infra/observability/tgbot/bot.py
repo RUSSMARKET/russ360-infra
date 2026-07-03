@@ -47,6 +47,8 @@ AGENT_TIMEOUT = int(os.environ.get("AGENT_TIMEOUT", "255"))
 DATA_DIR = os.environ.get("BOT_DATA_DIR", "/data")
 STATE_PATH = os.path.join(DATA_DIR, "state.json")
 MEM_DIR = os.environ.get("MEM_DIR", "/memory")  # shared with obs-agent (episodic capture)
+MEDIA_DIR = os.environ.get("MEDIA_DIR", "/media")  # shared with obs-agent (downloaded photos)
+MEDIA_TTL = 6 * 3600
 MSK = datetime.timezone(datetime.timedelta(hours=3))
 REPORT_TIME = datetime.time(hour=17, minute=20, tzinfo=MSK)
 
@@ -227,13 +229,13 @@ def fmt_status():
     return "\n".join(lines)
 
 
-def ask_agent(question, context, session=None):
+def ask_agent(question, context, session=None, images=None):
     """Ask the hardened read-only investigator (obs-agent). Returns the answer
     string, or None if the agent is unreachable/disabled so callers can fall back."""
     try:
         r = requests.post(
             f"{AGENT_URL}/ask",
-            json={"question": question, "context": context, "session": session},
+            json={"question": question, "context": context, "session": session, "images": images},
             timeout=AGENT_TIMEOUT,
         )
         r.raise_for_status()
@@ -287,6 +289,56 @@ def _episodic_append(chat_id, q, a):
         log.warning("episodic write failed: %s", e)
 
 
+# ---- media (level 1: capture; level 2: photo understanding) ---------------
+
+def _describe_media(msg):
+    """Short placeholder for the ambient buffer + the media kind."""
+    if msg.photo:
+        return "[фото]", "photo"
+    if msg.video:
+        return "[видео]", "video"
+    if msg.video_note:
+        return "[кружок]", "video_note"
+    if msg.voice:
+        return "[голосовое]", "voice"
+    if msg.audio:
+        return "[аудио]", "audio"
+    if msg.document:
+        return f"[документ: {msg.document.file_name or 'файл'}]", "document"
+    if msg.sticker:
+        return f"[стикер {msg.sticker.emoji or ''}]".replace(" ]", "]"), "sticker"
+    return "[вложение]", "other"
+
+
+def _prune_media():
+    try:
+        now = time.time()
+        for name in os.listdir(MEDIA_DIR):
+            p = os.path.join(MEDIA_DIR, name)
+            try:
+                if os.path.isfile(p) and now - os.path.getmtime(p) > MEDIA_TTL:
+                    os.remove(p)
+            except OSError:
+                pass
+    except FileNotFoundError:
+        pass
+
+
+async def _download_photo(context, msg):
+    """Download the largest photo size into the shared media volume; returns path."""
+    try:
+        _prune_media()
+        os.makedirs(MEDIA_DIR, exist_ok=True)
+        photo = msg.photo[-1]
+        f = await context.bot.get_file(photo.file_id)
+        path = os.path.join(MEDIA_DIR, f"{photo.file_unique_id}.jpg")
+        await f.download_to_drive(path)
+        return path
+    except Exception as e:
+        log.warning("photo download failed: %s", e)
+        return None
+
+
 def build_ai_context():
     """Snapshot handed to the AI layer for free-text questions."""
     return {
@@ -312,7 +364,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     ai_note = (
         "\n\nМожно спросить свободным текстом (в группе — реплаем на меня или с упоминанием, "
-        "в личке — просто текстом): «сколько логинов упало вчера?», «что с латенси финтеха?»"
+        "в личке — просто текстом): «сколько логинов упало вчера?», «что с латенси финтеха?». "
+        "Можно прислать скриншот с вопросом в подписи — гляну, что на нём."
         if aihelper.available()
         else "\n\nAI-режим выключен (нет токена) — доступны только команды."
     )
@@ -542,6 +595,60 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await run_with_progress(update, context, work)
 
 
+async def on_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Non-text messages: always recorded into the ambient buffer (level 1); if the
+    bot is addressed and it's a photo, the image is downloaded and the agent looks
+    at it via its Read tool (level 2)."""
+    msg = update.message
+    if msg is None:
+        return
+    if not await allowed(update, context):
+        return
+
+    chat = update.effective_chat
+    me = context.bot.username or ""
+    placeholder, kind = _describe_media(msg)
+    caption = (msg.caption or "").strip()
+    who = _display_name(update.effective_user)
+    _buffer_append(chat.id, who, placeholder + (f" {caption}" if caption else ""))
+
+    is_reply_to_bot = (
+        msg.reply_to_message is not None
+        and msg.reply_to_message.from_user is not None
+        and msg.reply_to_message.from_user.id == context.bot.id
+    )
+    mentioned = (f"@{me}".lower() in caption.lower()) if me else False
+    if chat.id == CHAT_ID and not (is_reply_to_bot or mentioned):
+        return  # ambient only — captured for context, not addressed
+    if not aihelper.available():
+        return
+
+    images = []
+    if kind == "photo":
+        p = await _download_photo(context, msg)
+        if p:
+            images.append(p)
+    question = (caption.replace(f"@{me}", "").strip() if me else caption)
+    if not question:
+        question = "Посмотри вложение и скажи, что на нём и что с этим делать." if images else f"Пользователь прислал {placeholder}."
+    if not images and kind != "photo":
+        question += f" (приложен {placeholder} — я пока умею смотреть только фото)"
+    log.info("engaging(media): chat=%s kind=%s img=%d", chat.id, kind, len(images))
+
+    def work():
+        ctx = build_ai_context()
+        session = _session_context(chat.id)
+        answer = ask_agent(question, ctx, session, images)
+        if answer is None:
+            answer = aihelper.answer_question(question, ctx)
+        if answer:
+            _buffer_append(chat.id, "бот", answer, bot=True)
+            _episodic_append(chat.id, question, answer)
+        return tgformat.render_ai(answer) if answer else "Не смог обработать, попробуй ещё раз или /status"
+
+    await run_with_progress(update, context, work)
+
+
 # ---- report (shared by /digest and the scheduled job) ----------------------
 
 def build_report_text(with_ai=True):
@@ -683,6 +790,11 @@ def main():
     app.add_handler(CommandHandler("selfcheck", cmd_selfcheck))
     app.add_handler(CommandHandler("forget", cmd_forget))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    media_filter = (
+        filters.PHOTO | filters.VIDEO | filters.VIDEO_NOTE | filters.VOICE
+        | filters.AUDIO | filters.Document.ALL | filters.Sticker.ALL
+    )
+    app.add_handler(MessageHandler(media_filter & ~filters.COMMAND, on_media))
     app.add_error_handler(on_error)
 
     jq = app.job_queue
