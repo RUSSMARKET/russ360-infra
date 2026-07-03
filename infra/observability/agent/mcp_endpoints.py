@@ -75,7 +75,7 @@ def sms_stats(date_from: str, date_to: str) -> str:
     тема недоставки MTS. Данные агрегированы, без телефонов и кодов.
     """
     try:
-        j = _get("/internal/v1/sms/stats", {"date_from": date_from, "date_to": date_to})
+        j = _get("/api/internal/v1/sms/stats", {"date_from": date_from, "date_to": date_to})
     except Exception as e:
         return f"Ошибка: {e}"
     return json.dumps(j.get("data", j), ensure_ascii=False)
@@ -92,7 +92,7 @@ def sms_events(date_from: str, date_to: str, page: int = 1, per_page: int = 25, 
     if phone_suffix:
         params["phone_suffix"] = phone_suffix
     try:
-        j = _get("/internal/v1/sms/events", params)
+        j = _get("/api/internal/v1/sms/events", params)
     except Exception as e:
         return f"Ошибка: {e}"
     return json.dumps(j.get("data", j), ensure_ascii=False)
