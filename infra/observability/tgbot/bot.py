@@ -332,15 +332,15 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         and msg.reply_to_message.from_user.id == context.bot.id
     )
     mentioned = _mentions_bot(msg, me) if me else False
-    log.info("on_text chat=%s reply_to_bot=%s mentioned=%s text=%r",
-             chat.id, is_reply_to_bot, mentioned, msg.text[:60])
 
     if chat.id == CHAT_ID:
         if not (is_reply_to_bot or mentioned):
-            return
+            return  # group chatter the bot isn't addressed in — ignore quietly
         question = msg.text.replace(f"@{me}", "").strip() if me else msg.text.strip()
     else:
         question = msg.text.strip()
+    log.info("engaging: chat=%s reply=%s mention=%s q=%r",
+             chat.id, is_reply_to_bot, mentioned, question[:60])
 
     if not question:
         return
