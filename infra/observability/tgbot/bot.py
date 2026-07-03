@@ -84,6 +84,19 @@ def esc(s):
     return html.escape(str(s), quote=False)
 
 
+async def _keep_typing(bot, chat_id):
+    """Refresh the 'typing…' action every 4s until cancelled (indicator TTL ~5s)."""
+    try:
+        while True:
+            try:
+                await bot.send_chat_action(chat_id, "typing")
+            except Exception:
+                pass
+            await asyncio.sleep(4)
+    except asyncio.CancelledError:
+        pass
+
+
 async def send_long(bot, chat_id, text, parse_mode=ParseMode.HTML):
     for chunk_start in range(0, len(text), 4000):
         await bot.send_message(
@@ -348,13 +361,28 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("AI-режим выключен (нет токена). Доступны команды — /help")
         return
 
-    await context.bot.send_chat_action(chat.id, "typing")
-    ctx_data = await asyncio.to_thread(build_ai_context)
-    answer = await asyncio.to_thread(aihelper.answer_question, question, ctx_data)
-    if answer:
-        await send_long(context.bot, chat.id, esc(answer))
-    else:
-        await msg.reply_text("Не смог получить ответ от AI-слоя, попробуй ещё раз или /status")
+    # Visible progress for the whole (often 20-40s) AI round-trip: a placeholder
+    # message the user always sees + a "typing…" action refreshed every 4s (the
+    # Telegram indicator otherwise expires after ~5s and looks stalled).
+    placeholder = await msg.reply_text("🤔 Собираю данные и думаю над ответом…")
+    typing_task = asyncio.create_task(_keep_typing(context.bot, chat.id))
+    try:
+        ctx_data = await asyncio.to_thread(build_ai_context)
+        answer = await asyncio.to_thread(aihelper.answer_question, question, ctx_data)
+    finally:
+        typing_task.cancel()
+
+    if not answer:
+        await placeholder.edit_text("Не смог получить ответ от AI-слоя, попробуй ещё раз или /status")
+        return
+    text = esc(answer)
+    await placeholder.edit_text(
+        text[:4000], parse_mode=ParseMode.HTML, disable_web_page_preview=True
+    )
+    for i in range(4000, len(text), 4000):  # tail of a long answer as follow-ups
+        await context.bot.send_message(
+            chat.id, text[i : i + 4000], parse_mode=ParseMode.HTML, disable_web_page_preview=True
+        )
 
 
 # ---- scheduled jobs ---------------------------------------------------------
