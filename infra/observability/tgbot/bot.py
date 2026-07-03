@@ -304,6 +304,19 @@ async def cmd_selfcheck(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---- free-text (AI) --------------------------------------------------------
 
+def _mentions_bot(msg, me):
+    """True if the message @mentions the bot — matched via entities (robust to
+    formatting) with a plain-substring fallback."""
+    text = msg.text or ""
+    handle = f"@{me}".lower()
+    for ent in (msg.entities or []):
+        if ent.type == "mention":
+            frag = text[ent.offset : ent.offset + ent.length].lower()
+            if frag == handle:
+                return True
+    return handle in text.lower()
+
+
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if msg is None or not msg.text or msg.text.startswith("/"):
@@ -312,17 +325,20 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat = update.effective_chat
+    me = context.bot.username or ""
+    is_reply_to_bot = (
+        msg.reply_to_message is not None
+        and msg.reply_to_message.from_user is not None
+        and msg.reply_to_message.from_user.id == context.bot.id
+    )
+    mentioned = _mentions_bot(msg, me) if me else False
+    log.info("on_text chat=%s reply_to_bot=%s mentioned=%s text=%r",
+             chat.id, is_reply_to_bot, mentioned, msg.text[:60])
+
     if chat.id == CHAT_ID:
-        me = context.bot.username or ""
-        is_reply_to_bot = (
-            msg.reply_to_message is not None
-            and msg.reply_to_message.from_user is not None
-            and msg.reply_to_message.from_user.id == context.bot.id
-        )
-        mentioned = f"@{me}".lower() in msg.text.lower() if me else False
         if not (is_reply_to_bot or mentioned):
             return
-        question = msg.text.replace(f"@{me}", "").strip()
+        question = msg.text.replace(f"@{me}", "").strip() if me else msg.text.strip()
     else:
         question = msg.text.strip()
 
