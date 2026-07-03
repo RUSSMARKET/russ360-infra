@@ -31,6 +31,7 @@ from telegram.ext import (
 import aihelper
 import datasources as ds
 import report as report_mod
+import tgformat
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -435,7 +436,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     def work():
         answer = aihelper.answer_question(question, build_ai_context())
-        return esc(answer) if answer else "Не смог получить ответ от AI-слоя, попробуй ещё раз или /status"
+        return tgformat.render_ai(answer) if answer else "Не смог получить ответ от AI-слоя, попробуй ещё раз или /status"
 
     await run_with_progress(update, context, work)
 
@@ -450,7 +451,7 @@ def build_report_text(with_ai=True):
     if with_ai and aihelper.available():
         ai_part = aihelper.report_summary(data)
         if ai_part:
-            text += "\n\n🤖 <i>" + esc(ai_part) + "</i>"
+            text += "\n\n🤖 " + tgformat.render_ai(ai_part)
     return text
 
 
