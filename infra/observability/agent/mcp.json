@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "obs": {
+      "command": "/venv/bin/python",
+      "args": ["/app/mcp_obs.py"]
+    }
+  }
+}

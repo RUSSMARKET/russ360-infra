@@ -6,19 +6,23 @@
 FROM node:22-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 ca-certificates \
+    && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g @anthropic-ai/claude-code
+
+# venv for the MCP obs server (FastMCP) + its HTTP client
+RUN python3 -m venv /venv \
+    && /venv/bin/pip install --no-cache-dir mcp requests
 
 RUN useradd -m -u 10002 agent \
     && mkdir -p /work \
     && chown agent:agent /work
 
 WORKDIR /work
-COPY agent.py /app/agent.py
+COPY agent.py mcp_obs.py mcp.json /app/
 
 ENV HOME=/home/agent
 USER agent
 EXPOSE 8080
-CMD ["python3", "/app/agent.py"]
+CMD ["/venv/bin/python", "/app/agent.py"]

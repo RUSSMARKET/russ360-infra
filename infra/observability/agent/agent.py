@@ -35,15 +35,20 @@ PORT = int(os.environ.get("AGENT_PORT", "8080"))
 # else can use it as an egress path.
 ANTHROPIC_PROXY = os.environ.get("ANTHROPIC_PROXY")
 
-ALLOWED_TOOLS = "Read,Grep,Glob"
+MCP_CONFIG = os.environ.get("MCP_CONFIG", "/app/mcp.json")
+ALLOWED_TOOLS = "Read,Grep,Glob,mcp__obs__metrics,mcp__obs__logs,mcp__obs__list_metrics"
 DISALLOWED_TOOLS = "Bash,Edit,Write,WebFetch,WebSearch,NotebookEdit"
 
 SYSTEM_CONTEXT = """Ты — read-only SRE-агент платформы Russmarket 360 (полевые продажи: промоутеры, банковские карты, склады).
 Стек: 4 Laravel-сервиса — rusaifin (основной монолит field sales), rusaicore (core-домен: Employee/Project/Membership/Location), rusaiauth (OAuth2/OIDC SSO), rusaisklad (склад) — плюс 2 Nuxt-фронта. Прод — один сервер, мониторинг Prometheus/Loki/Grafana.
 
-У тебя есть ИНСТРУМЕНТЫ чтения исходного кода прода (только чтение): Read, Grep, Glob.
-Код лежит под {code_root}/: бэкенды rusaifin/, rusaicore/, rusaiauth/, rusaisklad/ (каталоги app/ config/ routes/ database/ resources/); фронты fintech-front/src/, sklad-front/src/ (Nuxt, там OIDC/PKCE-клиент в src/shared/lib/); infra/ (репо мониторинга). Секретов (.env, ключи) там нет — они намеренно не смонтированы.
-Когда вопрос касается поведения кода, роутов, логики, конфигурации — НЕ гадай, а сходи Grep/Glob/Read и ответь по факту из кода. Указывай файл:строку, если это уместно.
+У тебя есть ИНСТРУМЕНТЫ (только чтение):
+1. Код прода — Read, Grep, Glob. Код под {code_root}/: бэкенды rusaifin/, rusaicore/, rusaiauth/, rusaisklad/ (каталоги app/ config/ routes/ database/ resources/); фронты fintech-front/src/, sklad-front/src/ (Nuxt, OIDC/PKCE-клиент в src/shared/lib/); infra/ (репо мониторинга). Секретов (.env, ключи) там нет — не смонтированы.
+2. Метрики — mcp__obs__metrics(promql): любой PromQL к Prometheus. list_metrics(prefix) — найти метрику.
+3. Логи — mcp__obs__logs(service, filter, minutes): строки из Loki по сервису.
+
+Когда вопрос про поведение кода/роуты/логику — НЕ гадай, сходи Grep/Glob/Read, отвечай по факту, указывай файл:строку.
+Когда вопрос про метрики/латенси/ошибки/тренды — не ограничивайся снапшотом ниже, сам дотяни нужное через metrics()/logs() под конкретный вопрос (например латенси другого сервиса, ошибки за другой период, редкий роут).
 
 Отвечай по-русски, кратко и по делу, без воды. Не выдумывай: если данных или кода не нашёл — так и скажи.
 Формат — Telegram-чат, не Markdown-документ: без таблиц, без ** и __, без заголовков #. Обычный текст, списки короткими строками."""
@@ -70,12 +75,17 @@ def run_claude(prompt):
     if ANTHROPIC_PROXY:
         env["HTTPS_PROXY"] = ANTHROPIC_PROXY
         env["HTTP_PROXY"] = ANTHROPIC_PROXY
+        # the MCP obs server (spawned by claude, inherits this env) must reach the
+        # internal obs stack directly, not via the Anthropic proxy.
+        env["NO_PROXY"] = "obs-prometheus,obs-loki,obs-grafana,localhost,127.0.0.1"
     try:
         proc = subprocess.run(
             [
                 CLAUDE_BIN, "-p", prompt,
                 "--model", MODEL,
                 "--add-dir", CODE_ROOT,
+                "--mcp-config", MCP_CONFIG,
+                "--strict-mcp-config",
                 "--allowedTools", ALLOWED_TOOLS,
                 "--disallowedTools", DISALLOWED_TOOLS,
             ],
