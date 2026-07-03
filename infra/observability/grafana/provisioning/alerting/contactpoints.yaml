@@ -14,5 +14,5 @@ contactPoints:
         type: telegram
         settings:
           bottoken: "${GF_TELEGRAM_BOT_TOKEN}"
-          chatid: "-5136374164"
+          chatid: "-1004410412578"
         disableResolveMessage: false
