@@ -220,13 +220,13 @@ def fmt_status():
     return "\n".join(lines)
 
 
-def ask_agent(question, context):
+def ask_agent(question, context, history=None):
     """Ask the hardened read-only investigator (obs-agent). Returns the answer
     string, or None if the agent is unreachable/disabled so callers can fall back."""
     try:
         r = requests.post(
             f"{AGENT_URL}/ask",
-            json={"question": question, "context": context},
+            json={"question": question, "context": context, "history": history},
             timeout=AGENT_TIMEOUT,
         )
         r.raise_for_status()
@@ -234,6 +234,31 @@ def ask_agent(question, context):
     except Exception as e:
         log.warning("obs-agent /ask failed: %s", e)
         return None
+
+
+# ---- per-chat conversation memory (thread continuity) ---------------------
+
+CONV_MAX = 6  # turns kept per chat
+
+
+def _conv_history_str(chat_id):
+    conv = load_state().get("conversations", {}).get(str(chat_id), [])
+    if not conv:
+        return ""
+    lines = []
+    for turn in conv[-CONV_MAX:]:
+        lines.append("В: " + turn.get("q", "")[:300])
+        lines.append("О: " + turn.get("a", "")[:500])
+    return "\n".join(lines)
+
+
+def _conv_append(chat_id, q, a):
+    st = load_state()
+    conv = st.setdefault("conversations", {})
+    lst = conv.setdefault(str(chat_id), [])
+    lst.append({"q": q[:500], "a": a[:1500]})
+    conv[str(chat_id)] = lst[-CONV_MAX:]
+    save_state(st)
 
 
 def build_ai_context():
@@ -274,9 +299,21 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/alerts — активные алерты\n"
         "/disk — диск/память/load\n"
         "/selfcheck — здоровье самого мониторинга\n"
+        "/forget — забыть контекст диалога в этом чате\n"
         "/help — это сообщение" + ai_note,
         parse_mode=ParseMode.HTML,
     )
+
+
+async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await allowed(update, context):
+        return
+    st = load_state()
+    conv = st.get("conversations", {})
+    if str(update.effective_chat.id) in conv:
+        del conv[str(update.effective_chat.id)]
+        save_state(st)
+    await update.message.reply_text("Забыл контекст этого чата 🧹 (долгую память это не трогает)")
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -456,9 +493,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     def work():
         ctx = build_ai_context()
-        answer = ask_agent(question, ctx)
+        history = _conv_history_str(chat.id)
+        answer = ask_agent(question, ctx, history)
         if answer is None:  # agent down/unreachable — fall back to the in-bot toolless path
             answer = aihelper.answer_question(question, ctx)
+        if answer:
+            _conv_append(chat.id, question, answer)
         return tgformat.render_ai(answer) if answer else "Не смог получить ответ от AI-слоя, попробуй ещё раз или /status"
 
     await run_with_progress(update, context, work)
@@ -587,6 +627,7 @@ def main():
     app.add_handler(CommandHandler("alerts", cmd_alerts))
     app.add_handler(CommandHandler("disk", cmd_disk))
     app.add_handler(CommandHandler("selfcheck", cmd_selfcheck))
+    app.add_handler(CommandHandler("forget", cmd_forget))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_error_handler(on_error)
 

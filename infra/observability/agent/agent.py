@@ -40,8 +40,10 @@ ALLOWED_TOOLS = (
     "Read,Grep,Glob,"
     "mcp__obs__metrics,mcp__obs__logs,mcp__obs__list_metrics,"
     "mcp__db__query,"
-    "mcp__auth__sms_stats,mcp__auth__sms_events"
+    "mcp__auth__sms_stats,mcp__auth__sms_events,"
+    "mcp__memory__remember,mcp__memory__recall"
 )
+MEM_DIR = os.environ.get("MEM_DIR", "/memory")
 DISALLOWED_TOOLS = "Bash,Edit,Write,WebFetch,WebSearch,NotebookEdit"
 
 SYSTEM_CONTEXT = """Ты — read-only SRE-агент платформы Russmarket 360 (полевые продажи: промоутеры, банковские карты, склады).
@@ -53,6 +55,7 @@ SYSTEM_CONTEXT = """Ты — read-only SRE-агент платформы Russmar
 3. Логи — mcp__obs__logs(service, filter, minutes): строки из Loki по сервису.
 4. БД прода (read-only SELECT) — mcp__db__query(datasource, sql): fintech_base (MySQL rusaifin — промоутеры/смены/карты/оформление), rusaicore_prod (PG Core — employees/projects/memberships/locations), rusaisklad_prod_db (PG склад — остатки/перемещения/инвентаризации). Схему смотри через information_schema. В БД есть PII — это ок. (auth-БД недоступна намеренно.)
 5. SMS-аналитика OTP (rusaiauth) — mcp__auth__sms_stats(date_from,date_to) агрегаты доставки, mcp__auth__sms_events(...) события (телефоны маскированы, кода нет). Даты YYYY-MM-DD. Для вопросов про доставку OTP/входы по SMS.
+6. Долгая память — mcp__memory__remember(text,tags) сохранить устойчивый вывод, mcp__memory__recall(query) искать в памяти. Когда разобрался в устойчивой причине (почему паттерн/аномалия/инцидент), СОХРАНИ это через remember — в следующий раз не придётся заново копать. Сиюминутные числа не сохраняй.
 
 Когда вопрос про поведение кода/роуты/логику — НЕ гадай, сходи Grep/Glob/Read, отвечай по факту, указывай файл:строку.
 Когда вопрос про метрики/латенси/ошибки/тренды — не ограничивайся снапшотом ниже, сам дотяни нужное через metrics()/logs().
@@ -62,12 +65,45 @@ SYSTEM_CONTEXT = """Ты — read-only SRE-агент платформы Russmar
 Формат — Telegram-чат, не Markdown-документ: без таблиц, без ** и __, без заголовков #. Обычный текст, списки короткими строками."""
 
 
-def build_prompt(question, context):
+def _memory_digest(limit=25):
+    """Compact digest of the most recent durable notes, injected into every prompt
+    so baseline recall is automatic (the recall tool is for deeper lookups)."""
+    path = os.path.join(MEM_DIR, "notes.jsonl")
+    notes = []
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        notes.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+    except FileNotFoundError:
+        return ""
+    notes = notes[-limit:]
+    if not notes:
+        return ""
+    out = []
+    for n in notes:
+        tg = (" [" + ",".join(n.get("tags", [])) + "]") if n.get("tags") else ""
+        out.append(f"-{tg} {n.get('text', '')}")
+    return "\n".join(out)
+
+
+def build_prompt(question, context, history=None):
     parts = [SYSTEM_CONTEXT.format(code_root=CODE_ROOT)]
+
+    mem = _memory_digest()
+    if mem:
+        parts.append("\nЧто ты уже знаешь (долгая память, самое свежее снизу):\n" + mem)
+    if history:
+        parts.append("\nНедавний диалог в этом чате (старое сверху):\n" + history)
+
     parts.append(
         "\nТебе задали вопрос в чате мониторинга. Ниже — свежий снапшот метрик платформы (JSON): "
         "статус сервисов за 1ч и 24ч, воронка входов, алерты, деплои, дрейф, хост, последние ошибки логов. "
-        "Ответь по снапшоту И, если нужно, по коду прода через Read/Grep/Glob."
+        "Ответь по снапшоту И, если нужно, по коду/метрикам/логам/БД/памяти через инструменты."
     )
     parts.append(f"\nВОПРОС: {question}")
     if context is not None:
@@ -141,7 +177,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "no question"})
             return
         log.info("ask: %r", question[:80])
-        answer = run_claude(build_prompt(question, body.get("context")))
+        answer = run_claude(build_prompt(question, body.get("context"), body.get("history")))
         self._json(200, {"answer": answer})
 
     def log_message(self, *args):

@@ -11,6 +11,10 @@
     "auth": {
       "command": "/venv/bin/python",
       "args": ["/app/mcp_endpoints.py"]
+    },
+    "memory": {
+      "command": "/venv/bin/python",
+      "args": ["/app/mcp_memory.py"]
     }
   }
 }
