@@ -255,8 +255,8 @@ def _crumb(block):
         return f"🔎 grep «{pat}»" + (f" в {_short_path(path)}" if path else "")
     if name == "Glob":
         return "🔎 файлы: " + str(inp.get("pattern", ""))[:45]
-    if name == "ToolSearch":
-        return "🔍 подбираю инструменты"
+    if name in ("ToolSearch",):
+        return None  # internal MCP tool-discovery plumbing — not a real step, hide it
     return f"🔧 {name.split('__')[-1]}"
 
 
@@ -326,7 +326,9 @@ def run_claude(prompt, req_id=None):
                         continue
                     btype = b.get("type")
                     if btype == "tool_use":
-                        _write_progress(progress_path, _crumb(b))
+                        c = _crumb(b)
+                        if c:  # None -> suppressed (internal plumbing)
+                            _write_progress(progress_path, c)
                     elif btype == "text":
                         # the model's own narration between tool calls (💭), if any
                         txt = (b.get("text") or "").strip().split("\n")[0][:130]
