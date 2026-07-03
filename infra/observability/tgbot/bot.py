@@ -84,15 +84,30 @@ def esc(s):
     return html.escape(str(s), quote=False)
 
 
-async def _keep_typing(bot, chat_id):
-    """Refresh the 'typing…' action every 4s until cancelled (indicator TTL ~5s)."""
+PROGRESS_PHRASES = [
+    "🤔 Думаю…",
+    "⚙️ Обрабатываю…",
+    "🧠 Размышляю…",
+    "😤 Напрягаюсь…",
+    "🔥 Сжигаю токены…",
+    "📚 Поднимаю архивы…",
+    "🔍 Разбираюсь…",
+]
+
+
+async def _animate(bot, chat_id, message):
+    """Cycle the placeholder text + refresh 'typing…' every ~3.5s until cancelled
+    (the Telegram typing indicator expires after ~5s, so a long job looks stalled)."""
+    i = 0
     try:
         while True:
+            await asyncio.sleep(3.5)
+            i += 1
             try:
                 await bot.send_chat_action(chat_id, "typing")
+                await message.edit_text(PROGRESS_PHRASES[i % len(PROGRESS_PHRASES)])
             except Exception:
-                pass
-            await asyncio.sleep(4)
+                pass  # message unchanged / rate limit — keep going
     except asyncio.CancelledError:
         pass
 
@@ -103,6 +118,32 @@ async def send_long(bot, chat_id, text, parse_mode=ParseMode.HTML):
             chat_id, text[chunk_start : chunk_start + 4000],
             parse_mode=parse_mode, disable_web_page_preview=True,
         )
+
+
+async def run_with_progress(update, context, work, empty="Пусто."):
+    """Standard response mechanic for every command that does real work.
+
+    Shows an animated placeholder (cycling phrases + typing), runs `work` (a sync
+    callable returning the final HTML string) in a thread, then DELETES the
+    placeholder and sends the answer as a FRESH message — the disappear+appear
+    reads as a clean reveal. Any new long-running command gets this for free by
+    routing through here.
+    """
+    chat_id = update.effective_chat.id
+    placeholder = await update.message.reply_text(PROGRESS_PHRASES[0])
+    anim = asyncio.create_task(_animate(context.bot, chat_id, placeholder))
+    try:
+        result = await asyncio.to_thread(work)
+    except Exception:
+        log.exception("command work failed")
+        result = "⚠️ Ошибка при выполнении команды (залогировано). Попробуй ещё раз или /selfcheck"
+    finally:
+        anim.cancel()
+    try:
+        await placeholder.delete()
+    except Exception:
+        pass
+    await send_long(context.bot, chat_id, result or empty)
 
 
 def fmt_status():
@@ -199,15 +240,24 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await allowed(update, context):
         return
-    text = await asyncio.to_thread(fmt_status)
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+    await run_with_progress(update, context, fmt_status)
 
 
 async def cmd_digest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await allowed(update, context):
         return
-    await update.message.reply_text("Собираю отчёт…")
-    await run_daily_report(context.application, chat_id=update.effective_chat.id, with_ai=True)
+    await run_with_progress(update, context, lambda: build_report_text(with_ai=True))
+
+
+def _errors_text(service, minutes):
+    lines = ds.recent_errors(service, minutes, 12)
+    if not lines:
+        return f"✅ {service}: ошибок в логах за {minutes} мин не найдено"
+    out = [f"<b>{service}: ошибки за {minutes} мин</b> (новые сверху)\n"]
+    for ts, line in lines:
+        t = datetime.datetime.fromtimestamp(ts, tz=MSK).strftime("%H:%M")
+        out.append(f"<code>{t}</code> {esc(line[:300])}")
+    return "\n".join(out)
 
 
 async def cmd_errors(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -216,49 +266,36 @@ async def cmd_errors(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args or []
     service = args[0] if args else "rusaifin"
     if service not in ds.SERVICES:
-        await update.message.reply_text(
-            "Не знаю такой сервис. Есть: " + ", ".join(ds.SERVICES)
-        )
+        await update.message.reply_text("Не знаю такой сервис. Есть: " + ", ".join(ds.SERVICES))
         return
     minutes = 60
     if len(args) > 1 and args[1].isdigit():
         minutes = min(int(args[1]), 24 * 60)
-    lines = await asyncio.to_thread(ds.recent_errors, service, minutes, 12)
-    if not lines:
-        await update.message.reply_text(
-            f"✅ {service}: ошибок в логах за {minutes} мин не найдено"
-        )
-        return
-    out = [f"<b>{service}: ошибки за {minutes} мин</b> (новые сверху)\n"]
-    for ts, line in lines:
-        t = datetime.datetime.fromtimestamp(ts, tz=MSK).strftime("%H:%M")
-        out.append(f"<code>{t}</code> {esc(line[:300])}")
-    await send_long(context.bot, update.effective_chat.id, "\n".join(out))
+    await run_with_progress(update, context, lambda: _errors_text(service, minutes))
+
+
+def _top_text():
+    routes = ds.top_routes(60, 8)
+    if not routes:
+        return "Недостаточно трафика за час для топа."
+    lines = ["<b>Самые медленные роуты rusaifin (за час, avg)</b>", ""]
+    for r in routes:
+        lines.append(f"• <code>{esc(r['route'])}</code> — {r['avg_s']:.2f}s ({int(r['count'])} req)")
+    return "\n".join(lines)
 
 
 async def cmd_top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await allowed(update, context):
         return
-    routes = await asyncio.to_thread(ds.top_routes, 60, 8)
-    if not routes:
-        await update.message.reply_text("Недостаточно трафика за час для топа.")
-        return
-    lines = ["<b>Самые медленные роуты rusaifin (за час, avg)</b>", ""]
-    for r in routes:
-        lines.append(f"• <code>{esc(r['route'])}</code> — {r['avg_s']:.2f}s ({int(r['count'])} req)")
-    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+    await run_with_progress(update, context, _top_text)
 
 
-async def cmd_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await allowed(update, context):
-        return
-    alerts = await asyncio.to_thread(ds.grafana_active_alerts)
+def _alerts_text():
+    alerts = ds.grafana_active_alerts()
     if alerts is None:
-        await update.message.reply_text("⚠️ Grafana недоступна")
-        return
+        return "⚠️ Grafana недоступна"
     if not alerts:
-        await update.message.reply_text("✅ Активных алертов нет")
-        return
+        return "✅ Активных алертов нет"
     lines = [f"<b>Активные алерты: {len(alerts)}</b>", ""]
     for a in alerts[:15]:
         tgt = "/".join(x for x in (a["service"], a["env"]) if x)
@@ -266,13 +303,17 @@ async def cmd_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"🔥 {esc(a['name'])}{f' ({tgt})' if tgt else ''}{sev}")
         if a["summary"]:
             lines.append(f"   {esc(a['summary'])}")
-    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+    return "\n".join(lines)
 
 
-async def cmd_disk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await allowed(update, context):
         return
-    h = await asyncio.to_thread(ds.host_snapshot)
+    await run_with_progress(update, context, _alerts_text)
+
+
+def _disk_text():
+    h = ds.host_snapshot()
     parts = []
     if h["disk_used_pct"] is not None:
         parts.append(f"💾 Диск: {h['disk_used_pct']:.1f}% занято")
@@ -280,13 +321,17 @@ async def cmd_disk(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parts.append(f"🧠 RAM: {h['mem_used_pct']:.0f}%")
     if h["load15"] is not None:
         parts.append(f"⚙️ load15: {h['load15']:.2f}")
-    await update.message.reply_text("\n".join(parts) or "Метрики хоста недоступны ⚠️")
+    return "\n".join(parts) or "Метрики хоста недоступны ⚠️"
 
 
-async def cmd_selfcheck(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_disk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await allowed(update, context):
         return
-    checks = await asyncio.to_thread(ds.health)
+    await run_with_progress(update, context, _disk_text)
+
+
+def _selfcheck_text():
+    checks = ds.health()
     state = load_state()
     lines = ["<b>Self-check мониторинга</b>", ""]
     for name, ok in checks.items():
@@ -309,10 +354,16 @@ async def cmd_selfcheck(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         lines.append("⚪ дневной отчёт ещё не отправлялся")
 
-    down = await asyncio.to_thread(ds.scrape_targets_down)
+    down = ds.scrape_targets_down()
     if down:
         lines.append("🔴 не скрейпятся: " + ", ".join(f"{j}/{e}" for j, e in down))
-    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+    return "\n".join(lines)
+
+
+async def cmd_selfcheck(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await allowed(update, context):
+        return
+    await run_with_progress(update, context, _selfcheck_text)
 
 
 # ---- free-text (AI) --------------------------------------------------------
@@ -361,50 +412,36 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("AI-режим выключен (нет токена). Доступны команды — /help")
         return
 
-    # Visible progress for the whole (often 20-40s) AI round-trip: a placeholder
-    # message the user always sees + a "typing…" action refreshed every 4s (the
-    # Telegram indicator otherwise expires after ~5s and looks stalled).
-    placeholder = await msg.reply_text("🤔 Собираю данные и думаю над ответом…")
-    typing_task = asyncio.create_task(_keep_typing(context.bot, chat.id))
-    try:
-        ctx_data = await asyncio.to_thread(build_ai_context)
-        answer = await asyncio.to_thread(aihelper.answer_question, question, ctx_data)
-    finally:
-        typing_task.cancel()
+    def work():
+        answer = aihelper.answer_question(question, build_ai_context())
+        return esc(answer) if answer else "Не смог получить ответ от AI-слоя, попробуй ещё раз или /status"
 
-    if not answer:
-        await placeholder.edit_text("Не смог получить ответ от AI-слоя, попробуй ещё раз или /status")
-        return
-    text = esc(answer)
-    await placeholder.edit_text(
-        text[:4000], parse_mode=ParseMode.HTML, disable_web_page_preview=True
-    )
-    for i in range(4000, len(text), 4000):  # tail of a long answer as follow-ups
-        await context.bot.send_message(
-            chat.id, text[i : i + 4000], parse_mode=ParseMode.HTML, disable_web_page_preview=True
-        )
+    await run_with_progress(update, context, work)
+
+
+# ---- report (shared by /digest and the scheduled job) ----------------------
+
+def build_report_text(with_ai=True):
+    """Full daily-report text (deterministic numbers + optional AI summary).
+    Sync — safe to run in a thread from run_with_progress or the scheduled job."""
+    data = report_mod.collect()
+    text = report_mod.render(data)
+    if with_ai and aihelper.available():
+        ai_part = aihelper.report_summary(data)
+        if ai_part:
+            text += "\n\n🤖 <i>" + esc(ai_part) + "</i>"
+    return text
 
 
 # ---- scheduled jobs ---------------------------------------------------------
 
-async def run_daily_report(app: Application, chat_id=None, with_ai=True):
-    chat_id = chat_id or CHAT_ID
-    data = await asyncio.to_thread(report_mod.collect)
-    text = report_mod.render(data)
-    ai_part = None
-    if with_ai and aihelper.available():
-        ai_part = await asyncio.to_thread(aihelper.report_summary, data)
-    if ai_part:
-        text += "\n\n🤖 <i>" + esc(ai_part) + "</i>"
-    await send_long(app.bot, chat_id, text)
-    state = load_state()
-    state["last_report_ts"] = datetime.datetime.now(tz=MSK).timestamp()
-    save_state(state)
-
-
 async def job_daily_report(context: ContextTypes.DEFAULT_TYPE):
     try:
-        await run_daily_report(context.application)
+        text = await asyncio.to_thread(build_report_text, True)
+        await send_long(context.bot, CHAT_ID, text)
+        state = load_state()
+        state["last_report_ts"] = datetime.datetime.now(tz=MSK).timestamp()
+        save_state(state)
     except Exception:
         log.exception("daily report failed")
         try:
