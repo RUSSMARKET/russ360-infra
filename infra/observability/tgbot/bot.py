@@ -94,18 +94,32 @@ PROGRESS_PHRASES = [
     "🔍 Разбираюсь…",
 ]
 
+# Global cursor into PROGRESS_PHRASES, persisted across messages so each new
+# response picks up where the previous left off instead of restarting the cycle.
+_phrase_cursor = 0
+
+
+def _next_phrase():
+    global _phrase_cursor
+    phrase = PROGRESS_PHRASES[_phrase_cursor % len(PROGRESS_PHRASES)]
+    _phrase_cursor += 1
+    return phrase
+
 
 async def _animate(bot, chat_id, message):
-    """Cycle the placeholder text + refresh 'typing…' every ~3.5s until cancelled
-    (the Telegram typing indicator expires after ~5s, so a long job looks stalled)."""
-    i = 0
+    """Advance the placeholder phrase + refresh 'typing…' every 10s until cancelled
+    (the Telegram typing indicator expires after ~5s, so refresh faster than that)."""
     try:
         while True:
-            await asyncio.sleep(3.5)
-            i += 1
+            await asyncio.sleep(5)
             try:
                 await bot.send_chat_action(chat_id, "typing")
-                await message.edit_text(PROGRESS_PHRASES[i % len(PROGRESS_PHRASES)])
+            except Exception:
+                pass
+            await asyncio.sleep(5)  # 10s total between phrase changes
+            try:
+                await bot.send_chat_action(chat_id, "typing")
+                await message.edit_text(_next_phrase())
             except Exception:
                 pass  # message unchanged / rate limit — keep going
     except asyncio.CancelledError:
@@ -130,7 +144,7 @@ async def run_with_progress(update, context, work, empty="Пусто."):
     routing through here.
     """
     chat_id = update.effective_chat.id
-    placeholder = await update.message.reply_text(PROGRESS_PHRASES[0])
+    placeholder = await update.message.reply_text(_next_phrase())
     anim = asyncio.create_task(_animate(context.bot, chat_id, placeholder))
     try:
         result = await asyncio.to_thread(work)
