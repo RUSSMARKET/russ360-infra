@@ -52,7 +52,9 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '{{ $labels.service }}/{{ $labels.env }}: 5xx share {{ printf "%.1f" (mulf $values.A.Value 100) }}% over 10m'
+          # Percent computed in PromQL (× 100), not the template: Grafana's alert
+          # templating has no `mulf` func — the old annotation errored at render.
+          summary: '{{ $labels.service }}/{{ $labels.env }}: 5xx доля {{ printf "%.1f" $values.A.Value }}% за 10m'
         data:
           - refId: A
             relativeTimeRange: { from: 600, to: 0 }
@@ -65,7 +67,7 @@ groups:
                   sum by (service,env) (rate(russ360_http_requests_total{status=~"5.."}[10m]))
                   /
                   clamp_min(sum by (service,env) (rate(russ360_http_requests_total[10m])), 1e-9)
-                )
+                ) * 100
                 and
                 (sum by (service,env) (rate(russ360_http_requests_total[10m])) > 0.05)
           - refId: C
@@ -75,7 +77,7 @@ groups:
               type: threshold
               expression: A
               conditions:
-                - evaluator: { type: gt, params: [0.01] }
+                - evaluator: { type: gt, params: [1] }
 
       # Recalibrated 2026-07-02 against a 3-day prod baseline: on a 15m window the
       # traffic gate flips ~41% of the time and p95 sits above 2.5s ~10% of the time,
@@ -142,6 +144,111 @@ groups:
               conditions:
                 - evaluator: { type: gt, params: [5] }
 
+      # After Stage 2 rusaifin/rusaisklad read+write the Core domain ONLY through Core
+      # gateways — a gateway fault silently breaks field operations. The counter is
+      # populated on error only (1 series in 15d: rusaisklad/transport), so a burst of
+      # >5 in 10m means Core connectivity is genuinely broken, not a one-off transient.
+      - uid: russ360-core-gateway-errors
+        title: 'Core gateway errors (межсервисный вызов Core падает)'
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.service }}/{{ $labels.env }}: {{ printf "%.0f" $values.A.Value }} ошибок Core-gateway за 10m (reason={{ $labels.reason }})'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: 'sum by (service,env,reason) (increase(russ360_core_gateway_errors_total{env="prod"}[10m]))'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [5] }
+
+      # Auth funnel health: fraction of oauth/authorize that reach a successful
+      # oauth/token. Baseline ~0.77 (23% drop-off = the known PKCE-verifier loss,
+      # 20-40 users/day). A drop below 0.5 during real login volume (authorize > 10
+      # in 30m gates out quiet nights) means a login regression is dropping users
+      # BEFORE any 5xx — invisible to the RED rules.
+      - uid: russ360-auth-token-conversion
+        title: 'Логины не доходят до токена (authorize→token < 50%)'
+        condition: C
+        for: 15m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: 'authorize→token {{ printf "%.2f" $values.A.Value }} (обмен кода на токен просел — вероятно потеря PKCE-verifier у части входов)'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: >
+                (
+                  sum(increase(russ360_http_requests_total{service="rusaiauth",route="oauth/token",status=~"2..",env="prod"}[30m]))
+                  /
+                  clamp_min(sum(increase(russ360_http_requests_total{service="rusaiauth",route="oauth/authorize",status=~"2..|3..",env="prod"}[30m])), 1)
+                )
+                and
+                (sum(increase(russ360_http_requests_total{service="rusaiauth",route="oauth/authorize",env="prod"}[30m])) > 10)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [0.5] }
+
+      # Silent outage: a service that normally serves traffic drops to exactly zero
+      # requests for 15m. up==0 misses this — nginx can be UP but misrouting (real
+      # incident: fastcgi collision sent rusaicore traffic to rusaisklad). The 3h
+      # baseline gate (>0.02 req/s, above every prod service's floor) means this only
+      # fires for a service that WAS active, not one that's just idle overnight.
+      - uid: russ360-traffic-dropped
+        title: 'Трафик сервиса упал в ноль (тихий обрыв)'
+        condition: C
+        for: 10m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.service }}/{{ $labels.env }}: 0 запросов за 15m, хотя обычно шёл трафик — вероятно обрыв upstream/мисроут nginx'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: >
+                (sum by (service,env) (rate(russ360_http_requests_total{env="prod"}[15m])) == bool 0)
+                and
+                (sum by (service,env) (rate(russ360_http_requests_total{env="prod"}[3h] offset 15m)) > 0.02)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
   - orgId: 1
     name: russ360-host
     folder: Russ360
@@ -204,6 +311,92 @@ groups:
               expression: A
               conditions:
                 - evaluator: { type: gt, params: [95] }
+
+      # RAM pressure (MemAvailable-based, so reclaimable cache doesn't count). Only
+      # disk was covered; a leak/OOM would go unseen. Baseline ~42%.
+      - uid: russ360-ram-85
+        title: 'Host RAM > 85%'
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Host RAM {{ printf "%.0f" $values.A.Value }}% занято'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: '100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [85] }
+
+      - uid: russ360-ram-95
+        title: 'Host RAM > 95%'
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: 'CRITICAL: host RAM {{ printf "%.0f" $values.A.Value }}% занято — риск OOM'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: '100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [95] }
+
+      # Crashloop: a prod app container restarting 3+ times in 15m (OOM/panic). Only
+      # obs-tgbot had a liveness signal before. Scoped to *_prod* containers by name
+      # (cAdvisor has no env label), so dev/stage restarts don't fire. Baseline 0.
+      - uid: russ360-container-crashloop
+        title: 'Контейнер в краш-петле (3+ рестарта за 15m)'
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.name }}: {{ printf "%.0f" $values.A.Value }} рестарта(ов) за 15m — краш-петля/OOM'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: 'changes(container_start_time_seconds{name=~"rusai.*_prod.*"}[15m])'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [2] }
 
 
   # Log-based alerts (Loki datasource P8E80F9AEF21F6940). Catch failure modes that the
@@ -319,7 +512,7 @@ groups:
     interval: 1m
     rules:
       - uid: russ360-frontend-down
-        title: 'Фронт не грузится (probe_success=0)'
+        title: 'Сайт/сервис не отвечает (probe_success=0)'
         condition: C
         for: 2m
         noDataState: OK
@@ -327,7 +520,7 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: '{{ $labels.instance }}: сайт не отвечает/не отдаётся (down, 5xx, TLS или белый экран — пустой shell)'
+          summary: '{{ $labels.instance }}: не отвечает/не отдаётся (down, 5xx, TLS или белый экран — пустой shell)'
         data:
           - refId: A
             relativeTimeRange: { from: 300, to: 0 }
@@ -335,7 +528,7 @@ groups:
             model:
               refId: A
               instant: true
-              expr: 'probe_success{job=~"blackbox-frontend.*"}'
+              expr: 'probe_success{job=~"blackbox-.*"}'
           - refId: C
             datasourceUid: __expr__
             model:
@@ -346,7 +539,7 @@ groups:
                 - evaluator: { type: lt, params: [1] }
 
       - uid: russ360-frontend-5xx
-        title: 'Фронт отвечает 5xx'
+        title: 'Сайт/сервис отвечает 5xx'
         condition: C
         for: 1m
         noDataState: OK
@@ -354,7 +547,7 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: '{{ $labels.instance }}: HTTP {{ printf "%.0f" $values.A.Value }} (серверная ошибка фронта)'
+          summary: '{{ $labels.instance }}: HTTP {{ printf "%.0f" $values.A.Value }} (серверная ошибка)'
         data:
           - refId: A
             relativeTimeRange: { from: 300, to: 0 }
@@ -362,7 +555,7 @@ groups:
             model:
               refId: A
               instant: true
-              expr: 'probe_http_status_code{job=~"blackbox-frontend.*"}'
+              expr: 'probe_http_status_code{job=~"blackbox-.*"}'
           - refId: C
             datasourceUid: __expr__
             model:
@@ -373,7 +566,7 @@ groups:
                 - evaluator: { type: gt, params: [499] }
 
       - uid: russ360-frontend-cert-expiry
-        title: 'TLS-сертификат фронта истекает (<10 дней)'
+        title: 'TLS-сертификат истекает (<10 дней)'
         condition: C
         for: 30m
         noDataState: OK
@@ -389,7 +582,7 @@ groups:
             model:
               refId: A
               instant: true
-              expr: '(probe_ssl_earliest_cert_expiry{job=~"blackbox-frontend.*"} - time()) / 86400'
+              expr: '(probe_ssl_earliest_cert_expiry{job=~"blackbox-.*"} - time()) / 86400'
           - refId: C
             datasourceUid: __expr__
             model:

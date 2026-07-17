@@ -668,6 +668,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/errors &lt;сервис&gt; [минут] — последние ошибки из логов (rusaifin 60 по умолчанию)\n"
         "/top — самые медленные роуты rusaifin за час\n"
         "/alerts — активные алерты\n"
+        "/suppressed — что триаж задавил (шумовые алерты за сутки)\n"
         "/disk — диск/память/load\n"
         "/selfcheck — здоровье самого мониторинга\n"
         "/forget — сбросить контекст беседы (обычно сбрасывается сам после паузы)\n"
@@ -816,6 +817,29 @@ async def cmd_selfcheck(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await allowed(update, context):
         return
     await run_with_progress(update, context, _selfcheck_text)
+
+
+def _suppressed_text():
+    """What the triage pre-filter/agent swallowed — on-demand visibility so it's
+    trusted (and so a real alert wrongly suppressed can be spotted and re-tuned)."""
+    sup = load_state().get("suppressed", {})
+    if not sup:
+        return "✅ Пока ничего не задавлено (или бот недавно поднялся)."
+    lines = ["<b>Задавленные алерты</b> (триаж/пре-фильтр)", ""]
+    for day in sorted(sup.keys(), reverse=True)[:2]:
+        d = sup[day]
+        lines.append(f"<b>{esc(day)}</b> — {int(d.get('count', 0))}")
+        for it in d.get("items", [])[-12:]:
+            lines.append(f"• {esc(it)}")
+        lines.append("")
+    lines.append("<i>Причины: dev / resolve / agent-noise. Если тут реальный алерт — скажи, подкручу порог.</i>")
+    return "\n".join(lines).strip()
+
+
+async def cmd_suppressed(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await allowed(update, context):
+        return
+    await run_with_progress(update, context, _suppressed_text)
 
 
 # ---- free-text (AI) --------------------------------------------------------
@@ -1082,6 +1106,8 @@ def main():
     app.add_handler(CommandHandler("errors", cmd_errors))
     app.add_handler(CommandHandler("top", cmd_top))
     app.add_handler(CommandHandler("alerts", cmd_alerts))
+    app.add_handler(CommandHandler("suppressed", cmd_suppressed))
+    app.add_handler(CommandHandler("noise", cmd_suppressed))
     app.add_handler(CommandHandler("disk", cmd_disk))
     app.add_handler(CommandHandler("selfcheck", cmd_selfcheck))
     app.add_handler(CommandHandler("forget", cmd_forget))

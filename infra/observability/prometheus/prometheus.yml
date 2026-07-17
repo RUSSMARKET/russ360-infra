@@ -108,3 +108,24 @@ scrape_configs:
         target_label: instance
       - target_label: __address__
         replacement: blackbox:9115
+
+  # Backend API + observability UIs: external "is it serving / TLS ok" probe (the
+  # frontend-down/5xx/cert rules match job=~"blackbox-.*", so these are covered too).
+  # server.rusaifin.ru/ → 200, observability → 302→200 (follow), glitchtip → 200.
+  - job_name: blackbox-service-status
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - https://server.rusaifin.ru/
+          - https://observability.rusaifin.ru/
+          - https://glitchtip.rusaifin.ru/
+        labels: { env: prod }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115

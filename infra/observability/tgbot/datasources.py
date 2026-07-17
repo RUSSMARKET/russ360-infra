@@ -16,6 +16,8 @@ log = logging.getLogger(__name__)
 PROM_URL = os.environ.get("PROM_URL", "http://obs-prometheus:9090")
 LOKI_URL = os.environ.get("LOKI_URL", "http://obs-loki:3100")
 GRAFANA_URL = os.environ.get("GRAFANA_URL", "http://obs-grafana:3000")
+AGENT_URL = os.environ.get("AGENT_URL", "http://obs-agent:8080")
+ALERT_PORT = os.environ.get("ALERT_PORT", "8090")
 GRAFANA_USER = os.environ.get("GF_SECURITY_ADMIN_USER", "admin")
 GRAFANA_PASSWORD = os.environ.get("GF_SECURITY_ADMIN_PASSWORD", "admin")
 
@@ -143,12 +145,16 @@ def grafana_alert_history(hours=24):
 
 
 def health():
-    """Component reachability for /selfcheck and the watchdog."""
+    """Component reachability for /selfcheck and the watchdog. Includes the triage
+    path (obs-agent + the bot's own alert webhook) — both went on the critical alert
+    path, so a state change here is proactively reported by the watchdog."""
     checks = {}
     for name, url in [
         ("prometheus", f"{PROM_URL}/-/ready"),
         ("loki", f"{LOKI_URL}/ready"),
         ("grafana", f"{GRAFANA_URL}/api/health"),
+        ("agent (триаж)", f"{AGENT_URL}/health"),
+        ("webhook алертов", f"http://127.0.0.1:{ALERT_PORT}/health"),
     ]:
         try:
             r = requests.get(url, timeout=10)
