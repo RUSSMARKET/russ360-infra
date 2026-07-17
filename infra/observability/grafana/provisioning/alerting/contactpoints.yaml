@@ -16,3 +16,18 @@ contactPoints:
           bottoken: "${GF_TELEGRAM_BOT_TOKEN}"
           chatid: "-1004410412578"
         disableResolveMessage: false
+
+  # Alerts are delivered to the interactive bot (obs-tgbot) instead of straight to
+  # telegram: the bot pre-filters noise, asks the agent to triage, and posts a short
+  # human-readable verdict with links. obs-tgbot and obs-grafana share the default
+  # observability network, so the container DNS name resolves internally (no host port).
+  # The dead-man switch (russ360-tgbot-down) stays on telegram-russ360 — see policies.yaml.
+  - orgId: 1
+    name: tgbot-triage
+    receivers:
+      - uid: tgbot-triage
+        type: webhook
+        settings:
+          url: "http://obs-tgbot:8090/alert"
+          httpMethod: "POST"
+        disableResolveMessage: false

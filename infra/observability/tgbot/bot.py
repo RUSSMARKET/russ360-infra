@@ -17,8 +17,10 @@ import inspect
 import json
 import logging
 import os
+import threading
 import time
 import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -58,6 +60,14 @@ REPORT_TIME = datetime.time(hour=17, minute=20, tzinfo=MSK)
 # (including colleagues talking to each other) keeps it alive, a longer silence starts fresh.
 SESSION_GAP = int(os.environ.get("SESSION_GAP_SEC", "1800"))  # 30 min
 SESSION_MAX_MSGS = 25
+
+# Grafana delivers alerts here (webhook contact point -> POST /alert) instead of
+# straight to telegram; the bot pre-filters obvious noise, sends the rest to the
+# agent for triage, and posts only a short human-readable verdict with links.
+ALERT_PORT = int(os.environ.get("ALERT_PORT", "8090"))
+ALERT_DEBOUNCE_SEC = int(os.environ.get("ALERT_DEBOUNCE_SEC", "900"))  # 15 min
+GRAFANA_BASE = os.environ.get("GRAFANA_PUBLIC_URL", "https://observability.rusaifin.ru").rstrip("/")
+GLITCHTIP_BASE = os.environ.get("GLITCHTIP_PUBLIC_URL", "https://glitchtip.rusaifin.ru").rstrip("/")
 
 
 # ---- state ---------------------------------------------------------------
@@ -295,6 +305,236 @@ def ask_agent(question, context, session=None, images=None, req_id=None):
     except Exception as e:
         log.warning("obs-agent /ask failed: %s", e)
         return None
+
+
+# ---- alert triage (Grafana webhook -> pre-filter -> agent -> chat) --------
+#
+# Grafana routes alerts to POST /alert (see grafana/provisioning/alerting). The
+# raw-alert firehose was pure noise (~84% dev + self-resolving warning flaps), so:
+#   1. a cheap deterministic pre-filter drops dev + non-critical resolves + repeats
+#      (no tokens spent),
+#   2. survivors go to the agent, which investigates and returns {verdict, title,
+#      summary, action} — a short human verdict instead of a raw metric dump,
+#   3. only "real" verdicts are posted (with wrapped links); "noise" is recorded
+#      for the daily digest. If the agent is unreachable the raw alert is posted
+#      anyway — an alert is never silently lost.
+
+_bot_app = None
+_bot_loop = None
+
+
+def _esc_url(u):
+    return html.escape(str(u), quote=True)
+
+
+def _alert_links(alert):
+    """Wrapped, tappable links for the chat: service dashboard, silence, GlitchTip."""
+    labels = alert.get("labels", {}) or {}
+    service = labels.get("service", "")
+    env = labels.get("env", "") or "prod"
+    name = labels.get("alertname", "")
+    links = []
+    if service:
+        dash = (f"{GRAFANA_BASE}/d/russ360-service-debug/service-debug"
+                f"?var-service={service}&var-env={env}")
+        links.append(f'<a href="{_esc_url(dash)}">дашборд</a>')
+    silence = alert.get("silenceURL")
+    if silence:
+        links.append(f'<a href="{_esc_url(silence)}">заглушить</a>')
+    if "xception" in name.lower() or "critical" in name.lower():
+        links.append(f'<a href="{_esc_url(GLITCHTIP_BASE)}">GlitchTip</a>')
+    return "🔗 " + " · ".join(links) if links else ""
+
+
+def _alert_target(labels):
+    return "/".join(x for x in (labels.get("service", ""), labels.get("env", "")) if x)
+
+
+def _record_suppressed(name, service, env, reason, title=None):
+    """Count a suppressed alert for the daily digest (keeps a short sample, 3 days)."""
+    st = load_state()
+    day = datetime.datetime.now(tz=MSK).strftime("%Y-%m-%d")
+    sup = st.setdefault("suppressed", {})
+    d = sup.setdefault(day, {"count": 0, "items": []})
+    d["count"] += 1
+    tgt = "/".join(x for x in (service, env) if x)
+    d["items"].append((title or name) + (f" ({tgt})" if tgt else "") + f" [{reason}]")
+    d["items"] = d["items"][-40:]
+    for old in sorted(sup.keys())[:-3]:  # keep only the last 3 calendar days
+        del sup[old]
+    save_state(st)
+
+
+def _debounce(alert):
+    """True if this exact alert+status fired again within the debounce window — skip
+    it so Grafana group re-sends don't re-trigger a triage. Real 1h critical repeats
+    still pass (window is 15 min)."""
+    labels = alert.get("labels", {}) or {}
+    key = alert.get("fingerprint") or json.dumps(labels, sort_keys=True, ensure_ascii=False)
+    key = f"{key}:{alert.get('status', 'firing')}"
+    st = load_state()
+    db = st.setdefault("alert_debounce", {})
+    now = int(time.time())
+    for k in [k for k, v in db.items() if now - v > 6 * 3600]:
+        del db[k]
+    recent = now - db.get(key, 0) < ALERT_DEBOUNCE_SEC
+    db[key] = now
+    save_state(st)
+    return recent
+
+
+def _alert_for_agent(alert):
+    """Compact view of the alert handed to the agent for triage."""
+    labels = alert.get("labels", {}) or {}
+    return {
+        "alertname": labels.get("alertname", ""),
+        "severity": labels.get("severity", ""),
+        "service": labels.get("service", ""),
+        "env": labels.get("env", ""),
+        "status": alert.get("status", "firing"),
+        "summary": (alert.get("annotations", {}) or {}).get("summary", ""),
+        "value": alert.get("valueString", ""),
+        "starts_at": alert.get("startsAt", ""),
+    }
+
+
+def _triage_alert(alert, req_id):
+    try:
+        r = requests.post(
+            f"{AGENT_URL}/triage",
+            json={"alert": _alert_for_agent(alert), "req_id": req_id},
+            timeout=AGENT_TIMEOUT,
+        )
+        r.raise_for_status()
+        return r.json().get("triage")
+    except Exception as e:
+        log.warning("obs-agent /triage failed: %s", e)
+        return None
+
+
+async def _post_alert_message(head_lines, alert):
+    links = _alert_links(alert)
+    if links:
+        head_lines = head_lines + ["", links]
+    await send_long(_bot_app.bot, CHAT_ID, "\n".join(head_lines))
+
+
+async def _post_triaged(alert, triage):
+    labels = alert.get("labels", {}) or {}
+    emoji = "🔴" if labels.get("severity") == "critical" else "🟡"
+    title = esc(triage.get("title") or labels.get("alertname", "Алерт"))
+    lines = [f"{emoji} <b>{title}</b>"]
+    summary = (triage.get("summary") or "").strip()
+    if summary:
+        lines.append(esc(summary))
+    action = (triage.get("action") or "").strip()
+    if action:
+        lines += ["", "⚡ " + esc(action)]
+    await _post_alert_message(lines, alert)
+
+
+async def _post_raw_alert(alert):
+    """Fallback when the agent is unreachable: post the alert as-is, never drop it."""
+    labels = alert.get("labels", {}) or {}
+    emoji = "🔴" if labels.get("severity") == "critical" else "🟡"
+    name = esc(labels.get("alertname", "Алерт"))
+    tgt = _alert_target(labels)
+    lines = [f"{emoji} <b>{name}</b>" + (f" ({esc(tgt)})" if tgt else "")]
+    summary = (alert.get("annotations", {}) or {}).get("summary", "")
+    if summary:
+        lines.append(esc(summary))
+    await _post_alert_message(lines, alert)
+
+
+async def _post_resolved(alert):
+    labels = alert.get("labels", {}) or {}
+    name = esc(labels.get("alertname", "Алерт"))
+    tgt = _alert_target(labels)
+    await send_long(_bot_app.bot, CHAT_ID,
+                    f"✅ <b>Восстановилось:</b> {name}" + (f" ({esc(tgt)})" if tgt else ""))
+
+
+async def handle_alert(alert):
+    """One alert from the Grafana webhook: pre-filter, triage, deliver."""
+    labels = alert.get("labels", {}) or {}
+    name = labels.get("alertname", "?")
+    severity = labels.get("severity", "")
+    service = labels.get("service", "")
+    env = labels.get("env", "")
+    status = alert.get("status", "firing")
+
+    # 1. dev noise — nobody acts on dev flaps
+    if env == "dev":
+        _record_suppressed(name, service, env, "dev")
+        return
+    # 2. resolves: only critical outages clearing are worth a (cheap) note
+    if status == "resolved":
+        if severity == "critical":
+            await _post_resolved(alert)
+        else:
+            _record_suppressed(name, service, env, "resolve")
+        return
+    # 3. debounce Grafana group re-sends
+    if _debounce(alert):
+        return
+
+    req_id = uuid.uuid4().hex[:16]
+    triage = await asyncio.to_thread(_triage_alert, alert, req_id)
+
+    if triage is None:  # agent down/disabled — never lose the alert
+        await _post_raw_alert(alert)
+        return
+    # Safety rail: a critical is never fully silenced even if the agent calls it
+    # noise (misjudging a real outage must not swallow it) — it's still posted, just
+    # with the agent's short summary. Only warnings can be suppressed as noise.
+    if triage.get("verdict") == "noise" and severity != "critical":
+        _record_suppressed(name, service, env, "agent-noise", triage.get("title"))
+        _episodic_append(CHAT_ID, f"[алерт-шум] {name} {_alert_target(labels)}",
+                         (triage.get("summary") or "подавлен как шум"))
+        return
+    await _post_triaged(alert, triage)
+
+
+class _AlertHandler(BaseHTTPRequestHandler):
+    """Internal-only HTTP endpoint for the Grafana webhook contact point. Acks fast
+    and schedules each alert onto the bot's event loop (triage is slow)."""
+
+    def do_POST(self):
+        if self.path != "/alert":
+            self.send_error(404)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length) or b"{}")
+        except (ValueError, json.JSONDecodeError):
+            self.send_response(400)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        alerts = payload.get("alerts") or []
+        for a in alerts:
+            if _bot_loop is not None:
+                asyncio.run_coroutine_threadsafe(handle_alert(a), _bot_loop)
+        self.send_response(200)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def do_GET(self):
+        if self.path == "/health":
+            self.send_response(200)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+        else:
+            self.send_error(404)
+
+    def log_message(self, *args):
+        pass
+
+
+def _start_alert_server():
+    srv = ThreadingHTTPServer(("0.0.0.0", ALERT_PORT), _AlertHandler)
+    threading.Thread(target=srv.serve_forever, daemon=True, name="alert-http").start()
+    log.info("alert webhook listening on :%s", ALERT_PORT)
 
 
 # ---- ambient session buffer (thread continuity, activity-based) -----------
@@ -787,7 +1027,7 @@ async def job_events(context: ContextTypes.DEFAULT_TYPE):
         return
     if size == offset:
         return
-    with open(path) as f:
+    with open(path, encoding="utf-8", errors="replace") as f:
         f.seek(offset)
         new_lines = f.read()
         state["events_offset"] = f.tell()
@@ -824,6 +1064,10 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def post_init(app: Application):
+    global _bot_app, _bot_loop
+    _bot_app = app
+    _bot_loop = asyncio.get_running_loop()
+    _start_alert_server()
     log.info("bot started, AI layer: %s", "on" if aihelper.available() else "off")
 
 

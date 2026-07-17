@@ -71,7 +71,10 @@ while IFS='|' read -r name path branch; do
   # deploy detection: HEAD moved since previous run
   prev_head="${PREV[$name]:-}"
   if [ -n "$prev_head" ] && [ "$prev_head" != "$head" ] && [ "$head" != "unknown" ]; then
-    subj=$(G "$path" log -1 --format=%s 2>/dev/null | head -c 120)
+    # head -c cuts by BYTES and can leave a dangling half of a multibyte (Cyrillic)
+    # char; iconv -c strips any invalid trailing sequence so events.jsonl stays valid
+    # UTF-8 (a broken byte here previously crashed the bot's daily report + event feed).
+    subj=$(G "$path" log -1 --format=%s 2>/dev/null | head -c 120 | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null)
     n_new=$(G "$path" rev-list --count "$prev_head..$head" 2>/dev/null || echo "?")
     emit_event deploy "$name" "$prev_head → $head ($n_new коммит(ов): $subj)"
   fi

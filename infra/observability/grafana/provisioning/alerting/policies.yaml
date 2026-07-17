@@ -1,15 +1,24 @@
 apiVersion: 1
 
-# Route everything to Telegram. Critical alerts get a tighter repeat interval.
+# Everything is delivered to the bot's triage webhook (tgbot-triage) — it filters
+# noise and posts a short AI verdict — EXCEPT the bot's own dead-man switch, which
+# must bypass the bot (undeliverable when the bot is down) and go straight to telegram.
 policies:
   - orgId: 1
-    receiver: telegram-russ360
+    receiver: tgbot-triage
     group_by: ['alertname', 'service', 'env']
     group_wait: 30s
     group_interval: 5m
     repeat_interval: 4h
     routes:
+      # Dead-man switch: bypass the bot, deliver directly to telegram.
       - receiver: telegram-russ360
+        matchers:
+          - deadman = true
+        group_wait: 10s
+        repeat_interval: 1h
+      # Critical alerts still go through triage, just with a tighter repeat interval.
+      - receiver: tgbot-triage
         matchers:
           - severity = critical
         group_wait: 10s

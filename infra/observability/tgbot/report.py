@@ -27,7 +27,9 @@ def _read_events(hours=24):
     cutoff = datetime.datetime.now(tz=MSK).timestamp() - hours * 3600
     events = []
     try:
-        with open(path) as f:
+        # errors="replace": a single malformed byte from the host writer must never
+        # crash the whole daily report — the bad line just fails json.loads and is skipped.
+        with open(path, encoding="utf-8", errors="replace") as f:
             for line in f:
                 try:
                     e = json.loads(line)
@@ -49,6 +51,18 @@ def read_drift():
         return None
 
 
+def read_suppressed_today():
+    """Alerts the triage pre-filter/agent swallowed today (written to state by bot.py)."""
+    path = os.path.join(DATA_DIR, "state.json")
+    try:
+        with open(path) as f:
+            st = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    day = datetime.datetime.now(tz=MSK).strftime("%Y-%m-%d")
+    return (st.get("suppressed", {}) or {}).get(day)
+
+
 def collect():
     return {
         "generated_at": datetime.datetime.now(tz=MSK).strftime("%d.%m.%Y %H:%M МСК"),
@@ -60,6 +74,7 @@ def collect():
         "targets_down": ds.scrape_targets_down(),
         "events_24h": _read_events(hours=24),
         "drift": read_drift(),
+        "suppressed_today": read_suppressed_today(),
     }
 
 
@@ -115,6 +130,11 @@ def render(data):
         lines.append("<b>Алерты:</b> Grafana недоступна ⚠️")
     if hist:
         lines.append(f"• срабатываний за сутки: {len(hist)}")
+    sup = data.get("suppressed_today")
+    if sup and sup.get("count"):
+        lines.append(f"• задавлено шумовых алертов сегодня: {sup['count']}")
+        for it in sup.get("items", [])[-4:]:
+            lines.append(f"  – {esc(it)}")
     lines.append("")
 
     # deploys / drift

@@ -176,6 +176,70 @@ def build_prompt(question, context, session=None, images=None):
     return "\n".join(parts)
 
 
+TRIAGE_INSTRUCTIONS = (
+    "\nСработал алерт мониторинга (JSON ниже). Быстро разберись и реши: это РЕАЛЬНАЯ "
+    "проблема, требующая внимания, или ШУМ (флап на низком трафике, разовый всплеск, "
+    "уже прошло, ерунда).\n"
+    "Посмотри ВОКРУГ алерта через инструменты, не по одной точке: метрики за последние "
+    "30-60 мин (тренд), логи сервиса на реальные ошибки, при необходимости код/БД. Не гадай.\n"
+    "Верни СТРОГО JSON без пояснений и без markdown:\n"
+    '{"verdict": "real"|"noise", "title": "...", "summary": "...", "action": "..."}\n'
+    "- verdict: real если стоит показать человеку; noise если можно молча проглотить.\n"
+    "- title: очень короткий заголовок для чата, до ~6 слов, по-русски, что и где "
+    "(напр. «rusaifin: всплеск 5xx»).\n"
+    "- summary: 1-2 живые фразы простым языком — что происходит, насколько серьёзно, "
+    "вероятная причина если нашёл. Конкретику дай (сервис, число, роут), но БЕЗ стектрейсов, "
+    "PromQL и тех-простыни — это читает занятой человек в чате.\n"
+    "- action: короткое «что делать» одной фразой, или пустая строка если noise/делать нечего.\n"
+    "Если данных не хватило и непонятно — лучше verdict=real с честным summary, "
+    "чем молча проглотить."
+)
+
+
+def build_triage_prompt(alert):
+    parts = [SYSTEM_CONTEXT.format(code_root=CODE_ROOT)]
+    mem = _memory_block()
+    if mem:
+        parts.append("\n" + mem)
+    parts.append(TRIAGE_INSTRUCTIONS)
+    parts.append("\nАЛЕРТ:\n" + json.dumps(alert, ensure_ascii=False, default=str))
+    return "\n".join(parts)
+
+
+def _parse_triage(out):
+    if not out:
+        return None
+    try:
+        s = out[out.index("{"):out.rindex("}") + 1]
+        j = json.loads(s)
+    except (ValueError, json.JSONDecodeError):
+        return None
+    verdict = str(j.get("verdict", "real")).lower()
+    if verdict not in ("real", "noise"):
+        verdict = "real"
+    return {
+        "verdict": verdict,
+        "title": str(j.get("title", "")).strip()[:120],
+        "summary": str(j.get("summary", "")).strip()[:600],
+        "action": str(j.get("action", "")).strip()[:300],
+    }
+
+
+def run_triage(alert, req_id=None):
+    """Investigate one alert and classify it real/noise with a short human summary.
+    Returns None if the agent produced nothing (no token / failure) so the bot can
+    fall back to posting the raw alert — an alert must never be silently lost."""
+    out = run_claude(build_triage_prompt(alert), req_id)
+    if out is None:
+        return None
+    parsed = _parse_triage(out)
+    if parsed is None:
+        # got text but not parseable JSON — fail safe toward notifying
+        return {"verdict": "real", "title": str(alert.get("alertname", "Алерт"))[:120],
+                "summary": out.strip()[:600], "action": ""}
+    return parsed
+
+
 def _parse_consolidation(out):
     if not out:
         return [], ""
@@ -400,6 +464,22 @@ class Handler(BaseHTTPRequestHandler):
                 log.exception("consolidation failed")
                 summary = None
             self._json(200, {"summary": summary})
+            return
+        if self.path == "/triage":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length) or b"{}")
+            except (ValueError, json.JSONDecodeError):
+                self._json(400, {"error": "bad json"})
+                return
+            alert = body.get("alert") or {}
+            log.info("triage: %s", alert.get("alertname"))
+            try:
+                triage = run_triage(alert, body.get("req_id"))
+            except Exception:
+                log.exception("triage failed")
+                triage = None
+            self._json(200, {"triage": triage})
             return
         if self.path != "/ask":
             self.send_error(404)

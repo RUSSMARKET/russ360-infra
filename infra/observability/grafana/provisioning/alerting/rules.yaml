@@ -291,6 +291,9 @@ groups:
         execErrState: OK
         labels:
           severity: critical
+          # Routed straight to telegram (NOT through the bot's webhook): when the bot
+          # is down its /alert endpoint is down too, so this must bypass triage.
+          deadman: 'true'
         annotations:
           summary: 'Интерактивный бот obs-tgbot не виден cAdvisor — команды/отчёты/watchdog не работают. docker logs obs-tgbot'
         data:
