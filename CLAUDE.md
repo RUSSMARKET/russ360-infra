@@ -17,7 +17,7 @@
 ```bash
 docker compose -f rusaiauth/compose.yml up -d
 docker compose -f rusaicore/compose.yml up -d
-docker compose -f rusaifin/compose.local.yml up -d
+docker compose -f rusaifin/compose.local.yaml up -d
 docker compose -p rusaisklad_back_local -f rusaisklad_back/compose.back.local.yaml up -d
 ```
 
