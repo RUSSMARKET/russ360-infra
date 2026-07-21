@@ -117,13 +117,19 @@
 | F-0113 | tasks | correctness | P1 | confirmed | open | findings/F-0113-task-update-delete-comment-no-ownership-authz.md |
 | F-0114 | tasks | correctness | P3 | confirmed | open | findings/F-0114-task-listing-or-precedence-soft-delete-bypass.md |
 | F-0115 | education | correctness | P2 | likely | open | findings/F-0115-education-section-docs-no-product-scope-idor.md |
+| F-0116 | requests-cards-magnit | correctness | P1 | confirmed | open | findings/F-0116-delete-request-no-authz-idor.md |
+| F-0117 | motivation | correctness | P2 | confirmed | open | findings/F-0117-motivation-list-no-zone-scope-leak.md |
+| F-0118 | staff-visibility | correctness | P2 | confirmed | open | findings/F-0118-export-staff-registry-no-viewer-scope.md |
+| F-0119 | requests-cards-magnit | correctness | P2 | confirmed | open | findings/F-0119-export-ruchnik-no-membership-scope.md |
+| F-0120 | requests-cards-magnit | correctness | P3 | confirmed | open | findings/F-0120-search-card-get-product-global-idor-read.md |
+| F-0121 | point-agent-binding | correctness | P3 | likely | open | findings/F-0121-product-point-agents-no-project-scope-authz.md |
 
 ## Сводка по severity
 - P0: 1 (F-0095 — chat IDOR, конструктор-guard не работает; ФЛАГ ВЛАДЕЛЬЦУ 2026-06-09)
-- P1: 24 (F-0001, F-0002, F-0007, F-0013, F-0014, F-0015, F-0020, F-0021, F-0031, F-0034, F-0035, F-0036, F-0042, F-0052, F-0061, F-0074, F-0077, F-0088, F-0091, F-0092, F-0099, F-0106, F-0110, F-0113)
-- P2: 58 (F-0003, F-0004, F-0008, F-0009, F-0010, F-0016, F-0017, F-0019, F-0022, F-0023, F-0026, F-0027, F-0028, F-0029, F-0030, F-0032, F-0033, F-0037, F-0038, F-0043, F-0045, F-0048, F-0049, F-0050, F-0053, F-0054, F-0055, F-0056, F-0057, F-0058, F-0059, F-0060, F-0062, F-0063, F-0065, F-0068, F-0070, F-0071, F-0075, F-0076, F-0078, F-0080, F-0082, F-0083, F-0085, F-0086, F-0089, F-0093, F-0094, F-0097, F-0100, F-0101, F-0102, F-0104, F-0107, F-0108, F-0111, F-0115)
-- P3: 32 (F-0005, F-0006, F-0011, F-0012, F-0018, F-0024, F-0025, F-0039, F-0040, F-0041, F-0044, F-0046, F-0047, F-0051, F-0064, F-0066, F-0067, F-0069, F-0072, F-0073, F-0079, F-0081, F-0084, F-0087, F-0090, F-0096, F-0098, F-0103, F-0105, F-0109, F-0112, F-0114)
-- **ИТОГО: 115 находок (1 P0 + 24 P1 + 58 P2 + 32 P3) по 36 потокам (TIER 1-4 закрыты)**
+- P1: 25 (F-0001, F-0002, F-0007, F-0013, F-0014, F-0015, F-0020, F-0021, F-0031, F-0034, F-0035, F-0036, F-0042, F-0052, F-0061, F-0074, F-0077, F-0088, F-0091, F-0092, F-0099, F-0106, F-0110, F-0113, F-0116)
+- P2: 61 (F-0003, F-0004, F-0008, F-0009, F-0010, F-0016, F-0017, F-0019, F-0022, F-0023, F-0026, F-0027, F-0028, F-0029, F-0030, F-0032, F-0033, F-0037, F-0038, F-0043, F-0045, F-0048, F-0049, F-0050, F-0053, F-0054, F-0055, F-0056, F-0057, F-0058, F-0059, F-0060, F-0062, F-0063, F-0065, F-0068, F-0070, F-0071, F-0075, F-0076, F-0078, F-0080, F-0082, F-0083, F-0085, F-0086, F-0089, F-0093, F-0094, F-0097, F-0100, F-0101, F-0102, F-0104, F-0107, F-0108, F-0111, F-0115, F-0117, F-0118, F-0119)
+- P3: 34 (F-0005, F-0006, F-0011, F-0012, F-0018, F-0024, F-0025, F-0039, F-0040, F-0041, F-0044, F-0046, F-0047, F-0051, F-0064, F-0066, F-0067, F-0069, F-0072, F-0073, F-0079, F-0081, F-0084, F-0087, F-0090, F-0096, F-0098, F-0103, F-0105, F-0109, F-0112, F-0114, F-0120, F-0121)
+- **ИТОГО: 121 находка (1 P0 + 25 P1 + 61 P2 + 34 P3) по 36 потокам (TIER 1-4 закрыты; +6 из аудита свитчера 2026-06-22)**
 
 ## Опровергнуто при верификации (не залогировано)
 - «disabled-юзер аутентифицируется в rusaifin» — ОПРОВЕРГНУТО: все 237 `auth:oauth`-роутов несут `UserIsNotDisabled` (дефект валиден только для sklad → F-0026).
