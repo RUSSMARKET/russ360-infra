@@ -29,3 +29,8 @@ status: open
 
 ## Направление фикса
 Заменить `detach($productIds)` на `syncWithoutDetaching($productIds)`; исправить счётчик `total_attachments` на фактически добавленные и текст ответа.
+
+## Проверка статуса
+
+**2026-07-21 — сверено с `origin/main`: дефект НА МЕСТЕ.**
+`SystemController:403` по-прежнему `detach($productIds)` под комментарием про `syncWithoutDetaching`, ответ рапортует «успешно прикреплены».

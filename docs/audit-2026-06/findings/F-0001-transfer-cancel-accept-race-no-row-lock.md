@@ -35,3 +35,8 @@ status: open
 
 ## Направление фикса (1-2 строки, НЕ реализовано)
 Внутри транзакций `cancelTransfer` и `deleteTransfer` сначала `InventoryTransfer::where('id',$transfer->id)->lockForUpdate()->firstOrFail()` и повторно проверять допустимость статуса (как в `runFinalizeTransfer`), только потом мутировать резервы/статус.
+
+## Проверка статуса
+
+**2026-07-21 — сверено с `origin/main`: дефект НА МЕСТЕ.**
+`cancelTransfer`/`deleteTransfer` по-прежнему проверяют статус на stale-модели вне транзакции; строка `inventory_transfers` не берётся `lockForUpdate` (в отличие от `runFinalizeTransfer`/`rollbackTransfer`/`updateTransfer`).

@@ -5,7 +5,7 @@ dimension: correctness
 severity: P1
 confidence: confirmed
 services: [rusaifin]
-status: open
+status: closed
 ---
 
 ## Симптом
@@ -27,3 +27,8 @@ status: open
 
 ## Направление фикса
 Добавить набор ролей/ownership как в `updateRuchnik`, либо `CheckPermission` на роут 372.
+
+## Статус закрытия
+
+Закрыто коммитом `5979d29` (rusaifin), проверено по коду на `origin/main` 2026-07-21.
+В `deleteRuchnik` добавлена проверка владения (`user_id != $user->id` → 403).

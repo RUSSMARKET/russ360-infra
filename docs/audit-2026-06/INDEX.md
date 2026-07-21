@@ -1,21 +1,29 @@
 # Аудит Russ360 — реестр находок
 
+> **Как читать `status`.** `open` означает «не проверялось на предмет закрытия», а не «точно не сделано» —
+> реестр вёлся без сверки с кодом. Пометка `closed` ставится ТОЛЬКО после проверки фактического кода
+> на `origin/main` (прод); в карточке при этом появляется раздел «Статус закрытия» с коммитом и тем,
+> что именно проверено. Сообщениям коммитов без сверки с кодом не доверять.
+>
+> Ревизия статусов начата 2026-07-21.
+
+
 | id | flow | dimension | severity | confidence | status | файл |
 |----|------|-----------|----------|------------|--------|------|
 | F-0001 | inventory-transfer | correctness | P1 | likely | open | findings/F-0001-transfer-cancel-accept-race-no-row-lock.md |
-| F-0002 | hiring-onboarding | correctness | P1 | confirmed | open | findings/F-0002-groupleader-hire-missing-membership-precondition.md |
+| F-0002 | hiring-onboarding | correctness | P1 | confirmed | closed | findings/F-0002-groupleader-hire-missing-membership-precondition.md |
 | F-0003 | hiring-onboarding | data-integrity | P2 | confirmed | open | findings/F-0003-history-duplicate-who-key-actor-lost.md |
 | F-0004 | hiring-onboarding | data-integrity | P2 | likely | open | findings/F-0004-multipoint-hire-partial-no-compensation.md |
 | F-0005 | hiring-onboarding | correctness | P3 | needs-verification | open | findings/F-0005-pointsid-fragile-string-parse.md |
 | F-0006 | hiring-onboarding | data-integrity | P3 | needs-verification | open | findings/F-0006-core-employee-link-by-email-wrong-match.md |
-| F-0007 | point-agent-binding | correctness | P1 | confirmed | open | findings/F-0007-point-leader-read-not-switched-to-core.md |
+| F-0007 | point-agent-binding | correctness | P1 | confirmed | closed | findings/F-0007-point-leader-read-not-switched-to-core.md |
 | F-0008 | point-agent-binding | data-integrity | P2 | confirmed | open | findings/F-0008-visibility-merges-frozen-pivot-ghost-agents.md |
 | F-0009 | point-agent-binding | data-integrity | P2 | likely | open | findings/F-0009-detach-noop-on-role-mismatch.md |
 | F-0010 | point-agent-binding | data-integrity | P2 | confirmed | open | findings/F-0010-bulk-productpointagents-nonatomic-fake-counts.md |
 | F-0011 | point-agent-binding | correctness | P3 | confirmed | open | findings/F-0011-addpointagent-partial-batch-on-error.md |
 | F-0012 | point-agent-binding | data-integrity | P3 | likely | open | findings/F-0012-point-delete-distributed-op-no-transaction.md |
-| F-0013 | project-support-membership | data-integrity | P1 | confirmed | open | findings/F-0013-membership-role-swap-overwrites-and-sticky.md |
-| F-0014 | project-support-membership | correctness | P1 | confirmed | open | findings/F-0014-addsupport-missing-core-employee-link-500.md |
+| F-0013 | project-support-membership | data-integrity | P1 | confirmed | closed | findings/F-0013-membership-role-swap-overwrites-and-sticky.md |
+| F-0014 | project-support-membership | correctness | P1 | confirmed | closed | findings/F-0014-addsupport-missing-core-employee-link-500.md |
 | F-0015 | project-support-membership | data-integrity | P1 | confirmed | open | findings/F-0015-project-team-multiwrite-no-compensation.md |
 | F-0016 | project-support-membership | correctness | P2 | confirmed | open | findings/F-0016-setprojectmanager-swallowed-false-no-role-validation.md |
 | F-0017 | project-support-membership | correctness | P2 | needs-verification | open | findings/F-0017-deactivateproject-user-property-crash.md |
@@ -75,7 +83,7 @@
 | F-0071 | user-profile-me | architecture-drift | P2 | confirmed | open | findings/F-0071-sklad-getrolecode-reads-legacy-local-memberships.md |
 | F-0072 | user-profile-me | correctness | P3 | confirmed | open | findings/F-0072-rusaifin-me-global-role-vs-core-membership-roles.md |
 | F-0073 | user-profile-me | correctness | P3 | confirmed | open | findings/F-0073-sklad-me-route-missing-not-disabled.md |
-| F-0074 | product-consent | correctness | P1 | confirmed | open | findings/F-0074-consent-sms-limit-reset-unbounded-bombing.md |
+| F-0074 | product-consent | correctness | P1 | confirmed | closed | findings/F-0074-consent-sms-limit-reset-unbounded-bombing.md |
 | F-0075 | product-consent | correctness | P2 | confirmed | open | findings/F-0075-consent-prefill-pii-oracle-no-state-guard.md |
 | F-0076 | product-consent | data-integrity | P2 | confirmed | open | findings/F-0076-consent-complete-duplicate-no-transaction.md |
 | F-0077 | products-catalog | correctness | P1 | confirmed | open | findings/F-0077-system-add-all-products-detaches-instead-of-attaches.md |
@@ -89,32 +97,32 @@
 | F-0085 | sklad-projects-admin | data-integrity | P2 | confirmed | open | findings/F-0085-sklad-admin-user-create-orphan-no-core-mirror.md |
 | F-0086 | sklad-projects-admin | data-integrity | P2 | confirmed | open | findings/F-0086-sklad-admin-user-delete-reverse-orphan-sync-resurrection.md |
 | F-0087 | sklad-projects-admin | data-integrity | P3 | likely | open | findings/F-0087-sklad-external-user-id-editable-no-validation-mislink.md |
-| F-0088 | core-crud | architecture-drift | P1 | confirmed | open | findings/F-0088-core-write-routes-no-scope-authorization.md |
+| F-0088 | core-crud | architecture-drift | P1 | confirmed | closed | findings/F-0088-core-write-routes-no-scope-authorization.md |
 | F-0089 | core-crud | data-integrity | P2 | confirmed | open | findings/F-0089-core-idempotency-read-then-write-race-duplicate-employee.md |
 | F-0090 | core-crud | data-integrity | P3 | confirmed | open | findings/F-0090-core-idempotency-key-global-not-client-scoped.md |
 | F-0091 | sklad-sku-catalog | data-integrity | P1 | confirmed | open | findings/F-0091-sku-delete-from-project-orphans-inventory-balances.md |
 | F-0092 | icontact-sync | data-integrity | P1 | likely | open | findings/F-0092-icontact-movement-snapshot-not-atomic-retry-double-post.md |
 | F-0093 | icontact-sync | correctness | P2 | needs-verification | open | findings/F-0093-icontact-snapshot-vs-group-granularity-double-apply.md |
 | F-0094 | icontact-sync | correctness | P2 | confirmed | open | findings/F-0094-icontact-process-catchall-kills-retry-stuck-run.md |
-| F-0095 | chats | correctness | P0 | confirmed | open | findings/F-0095-chat-idor-nonfunctional-constructor-guard.md |
+| F-0095 | chats | correctness | P0 | confirmed | closed | findings/F-0095-chat-idor-nonfunctional-constructor-guard.md |
 | F-0096 | chats | data-integrity | P3 | likely | open | findings/F-0096-chat-add-users-no-validation-no-dedup.md |
 | F-0097 | notifications-redirect | correctness | P2 | confirmed | open | findings/F-0097-redirect-history-no-auth-telemetry-leak.md |
 | F-0098 | notifications-redirect | correctness | P3 | confirmed | open | findings/F-0098-redirect-to-limited-open-redirect.md |
-| F-0099 | webhooks | data-integrity | P1 | confirmed | open | findings/F-0099-webhook-clear-no-auth-destroys-shift-reports.md |
+| F-0099 | webhooks | data-integrity | P1 | confirmed | closed | findings/F-0099-webhook-clear-no-auth-destroys-shift-reports.md |
 | F-0100 | webhooks | architecture-drift | P2 | confirmed | open | findings/F-0100-webhooks-secret-in-url-no-idempotency.md |
 | F-0101 | results-reporting | correctness | P2 | confirmed | open | findings/F-0101-get-agent-result-missing-reporting-scope.md |
 | F-0102 | results-reporting | correctness | P2 | confirmed | open | findings/F-0102-get-staff-shift-by-id-no-permission-gate.md |
 | F-0103 | results-reporting | correctness | P3 | confirmed | open | findings/F-0103-get-agent-result-undefined-date-key-500.md |
 | F-0104 | rusaifin-inventory-agent | data-integrity | P2 | confirmed | open | findings/F-0104-rusaifin-inventory-status-no-lock-no-transition-guard.md |
 | F-0105 | rusaifin-inventory-agent | data-integrity | P3 | needs-verification | open | findings/F-0105-rusaifin-inventory-orphan-on-point-delete.md |
-| F-0106 | requests-cards-magnit | correctness | P1 | confirmed | open | findings/F-0106-delete-ruchnik-no-authz-idor.md |
+| F-0106 | requests-cards-magnit | correctness | P1 | confirmed | closed | findings/F-0106-delete-ruchnik-no-authz-idor.md |
 | F-0107 | requests-cards-magnit | correctness | P2 | confirmed | open | findings/F-0107-create-ruchnik-arbitrary-user-id.md |
 | F-0108 | requests-cards-magnit | data-integrity | P2 | confirmed | open | findings/F-0108-magnit-app-files-attached-to-wrong-request.md |
 | F-0109 | requests-cards-magnit | data-integrity | P3 | likely | open | findings/F-0109-request-setfield-race-duplicate.md |
 | F-0110 | motivation | data-integrity | P1 | confirmed | open | findings/F-0110-compensation-cyrillic-table-homoglyph-mismatch.md |
 | F-0111 | motivation | correctness | P2 | likely | open | findings/F-0111-motivation-comment-not-null-vs-optional-validation.md |
 | F-0112 | motivation | data-integrity | P3 | confirmed | open | findings/F-0112-compensation-bringfriend-missing-from-user-audit.md |
-| F-0113 | tasks | correctness | P1 | confirmed | open | findings/F-0113-task-update-delete-comment-no-ownership-authz.md |
+| F-0113 | tasks | correctness | P1 | confirmed | closed | findings/F-0113-task-update-delete-comment-no-ownership-authz.md |
 | F-0114 | tasks | correctness | P3 | confirmed | open | findings/F-0114-task-listing-or-precedence-soft-delete-bypass.md |
 | F-0115 | education | correctness | P2 | likely | open | findings/F-0115-education-section-docs-no-product-scope-idor.md |
 | F-0116 | requests-cards-magnit | correctness | P1 | confirmed | open | findings/F-0116-delete-request-no-authz-idor.md |

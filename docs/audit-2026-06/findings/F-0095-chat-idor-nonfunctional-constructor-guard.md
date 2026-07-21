@@ -5,7 +5,7 @@ dimension: correctness
 severity: P0
 confidence: confirmed
 services: [rusaifin]
-status: open
+status: closed
 ---
 
 ## Симптом
@@ -34,3 +34,8 @@ status: open
 
 ## Направление фикса
 Конструктор должен БРОСАТЬ исключение (или контроллер явно вызывать `$chat->chatHasAccess()` → 403). Каждый мутирующий метод (`update/delete/addUsers/deleteUsers/getUsers`) guard'ить через `chatHasAccess()`, как уже сделано в `getMessages()`.
+
+## Статус закрытия
+
+Закрыто коммитом `5979d29` (rusaifin), проверено по коду на `origin/main` 2026-07-21.
+Антипаттерн `return null` в конструкторе убран; `chatHasAccess()` вызывается во всех мутирующих методах (update/delete/getUsers/addUsers/deleteUsers).

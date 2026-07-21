@@ -5,7 +5,7 @@ dimension: correctness
 severity: P1
 confidence: confirmed
 services: [rusaifin, rusaicore]
-status: open
+status: closed
 ---
 ## Симптом
 Оформление сотрудника на роль «Групп-лидер» (GROUP_LEADER) с указанием точек падает с `InvalidArgumentException('Агент должен быть привязан к проекту точки…')`. Сотрудник не оформляется на точку, при этом `role_id` уже сменён и сохранён, Core-employee уже создан — частично применённое состояние.
@@ -27,3 +27,8 @@ status: open
 
 ## Направление фикса (1-2 строки, НЕ реализовано)
 В `setGroupLeader` вызвать `ensureActiveProjectMembershipForAssignment($empExt)` перед `coreCreateAssignment` (по аналогии с `addAgent`); добавить тест с реальным membership-precondition.
+
+## Статус закрытия
+
+Проверено по коду на `origin/main` 2026-07-21 — дефект устранён.
+`PointService::setGroupLeader` вызывает `ensureActiveProjectMembershipForAssignment(..., GROUP_LEADER)` ДО `coreCreateAssignment` (после `EnsureCoreEmployeeLinked`); сам метод создаёт membership при отсутствии.

@@ -5,7 +5,7 @@ dimension: correctness
 severity: P1
 confidence: confirmed
 services: [rusaifin, rusaicore]
-status: open
+status: closed
 ---
 ## Симптом
 Добавление support-менеджера на проект падает с 500 (`RuntimeException`), если у пользователя нет `core_employee_external_id`, вместо понятной доменной ошибки/авто-линковки.
@@ -27,3 +27,8 @@ Support создан после cutover или попал под orphan-регр
 
 ## Направление фикса (1-2 строки, НЕ реализовано)
 Вызвать `EnsureCoreEmployeeLinked::execute($user)` в `addSupport()` перед созданием membership, по образцу РД.
+
+## Статус закрытия
+
+Проверено по коду на `origin/main` 2026-07-21 — дефект устранён.
+`addSupport`/`deleteSupport` вызывают `EnsureCoreEmployeeLinked` + `refresh()` до `employeeExternalId`/`coreMembershipCreate` — симметрично РД.

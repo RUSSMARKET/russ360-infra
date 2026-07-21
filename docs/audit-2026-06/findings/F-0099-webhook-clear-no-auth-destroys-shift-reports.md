@@ -5,7 +5,7 @@ dimension: data-integrity
 severity: P1
 confidence: confirmed
 services: [rusaifin]
-status: open
+status: closed
 ---
 
 ## Симптом
@@ -30,3 +30,8 @@ status: open
 
 ## Направление фикса
 Проверка секрета через `hash_equals` из заголовка/конфига (не из URL); валидация `id` (`exists:users,id`); null-guard на `$shift`; читать через `$request`, не `$_GET`. См. F-0100 (общий класс webhook-auth).
+
+## Статус закрытия
+
+Закрыто коммитом `5979d29` (rusaifin), проверено по коду на `origin/main` 2026-07-21.
+`clearArtem` перешёл на `$request->validate` с `exists:users,id` вместо `$_GET`.

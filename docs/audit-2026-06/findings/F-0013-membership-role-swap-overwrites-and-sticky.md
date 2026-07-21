@@ -5,7 +5,7 @@ dimension: data-integrity
 severity: P1
 confidence: confirmed
 services: [rusaifin, rusaicore]
-status: open
+status: closed
 ---
 ## Симптом
 Назначение второй проектной роли тому же сотруднику на том же проекте ТИХО перезаписывает его прежнюю открытую membership (роль A → роль B), без следов. Хуже: после подмены снятие исходной роли A (`deleteSupport`/`deleteRegionalDirector`) не срабатывает — роль «прилипает».
@@ -28,3 +28,8 @@ status: open
 
 ## Направление фикса (1-2 строки, НЕ реализовано)
 Согласовать доменное правило «сколько ролей на проекте у одного человека». Либо в Core ввести уникальность по (employee, project, project_role) и убрать role-swap; либо в rusaifin фильтровать `findOpenMembershipOnProject` по роли.
+
+## Статус закрытия
+
+Проверено по коду на `origin/main` 2026-07-21 — дефект устранён.
+`ensureOpenMembershipRole` больше не делает role-swap: при несовпадении роли бросает `ValidationException('core_project_role')`, `update` вызывается только когда роль совпадает. Добавлен pre-flight `assertNoOpenMembershipRoleConflict`.

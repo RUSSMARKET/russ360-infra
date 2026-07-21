@@ -5,7 +5,7 @@ dimension: correctness
 severity: P1
 confidence: confirmed
 services: [rusaifin]
-status: open
+status: closed
 ---
 
 ## Симптом
@@ -28,3 +28,8 @@ status: open
 
 ## Направление фикса
 Ownership-проверка (manager/executor/co_executor/observer или ADMIN) в update/delete/comment, либо `CheckPermission` на роутах 295-302.
+
+## Статус закрытия
+
+Закрыто коммитом `5979d29` (rusaifin), проверено по коду на `origin/main` 2026-07-21.
+В `TaskService` добавлен `hasAccess()` (ADMIN либо manager/executor/co_executor/observer); вызывается в `updateTask`/`deleteTask`/комментариях.

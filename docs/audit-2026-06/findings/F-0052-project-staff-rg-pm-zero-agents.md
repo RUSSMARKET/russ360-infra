@@ -28,3 +28,8 @@ REGIONAL_DIRECTOR и PROJECT_MANAGER при запросе дерева перс
 
 ## Направление фикса (1-2 строки, НЕ реализовано)
 Распространить ветку `null` (без agent-фильтра) на RD/PM как для SUPPORT_MANAGER, либо добавлять в `visibleAgentUserIds` агентов точек доступных проектов (`memberUserIdsForLocalPointIds(..., ['agent'])`).
+
+## Проверка статуса
+
+**2026-07-21 — сверено с `origin/main`: дефект НА МЕСТЕ.**
+`isPrivilegedViewer` всё те же 5 ролей без РД и PM; `computeVisibleUserIds` строится только из membership-провайдера, без агентских assignments.

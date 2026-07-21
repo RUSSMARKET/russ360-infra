@@ -5,7 +5,7 @@ dimension: architecture-drift
 severity: P1
 confidence: confirmed
 services: [rusaicore]
-status: open
+status: closed
 ---
 
 ## Симптом
@@ -28,3 +28,8 @@ S2S-клиент с токеном, предназначенным только 
 
 ## Направление фикса
 Middleware-gate `scope:core.write` (или per-entity scopes) на write-группе либо `$principal->hasScope(...)` в контроллерах/Actions. Согласовать с владельцем целевую модель scopes (S2S vs user-token) и проверить audience user-токенов.
+
+## Статус закрытия
+
+Закрыто коммитом `9807fba` (rusaicore), проверено по коду на `origin/main` 2026-07-21.
+Middleware `EnsureScope` отдаёт 403 `insufficient_scope`; `scope:core.write` навешан на 10 write-роутов.

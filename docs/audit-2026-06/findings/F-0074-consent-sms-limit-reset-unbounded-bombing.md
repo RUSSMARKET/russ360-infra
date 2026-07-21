@@ -5,7 +5,7 @@ dimension: correctness
 severity: P1
 confidence: confirmed
 services: [rusaifin, fintech]
-status: open
+status: closed
 ---
 
 ## Симптом
@@ -31,3 +31,8 @@ status: open
 
 ## Направление фикса
 Не обнулять `sms_send_attempts` в `resolvePhone` (вести счётчик отправок независимо от смены телефона) + `throttle` на `/phone` и `/sms/send` по комбинации token+IP+phone.
+
+## Статус закрытия
+
+Закрыто коммитом `5979d29` (rusaifin), проверено по коду на `origin/main` 2026-07-21.
+Сброс `sms_send_attempts` убран: счётчик только инкрементируется (ProductConsentService:140), лимит проверяется (:124).

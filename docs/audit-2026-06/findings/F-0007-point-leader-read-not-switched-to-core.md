@@ -5,7 +5,7 @@ dimension: correctness
 severity: P1
 confidence: confirmed
 services: [rusaifin, rusaicore]
-status: open
+status: closed
 ---
 ## Симптом
 `getProjectPoint` и `getProjectPoints` возвращают `leader: null` для всех точек, тронутых после cutover, хотя РГ реально назначен. Для старых точек возможен показ УСТАРЕВШЕГО лидера (если РГ потом сменили через Core).
@@ -28,3 +28,8 @@ Write-path РГ переключён на Core (D5 freeze колонки), а re
 
 ## Направление фикса (1-2 строки, НЕ реализовано)
 Читать лидера из Core (нужен прямой `leaderForPoint(locationExternalId)`; обратное направление `PointAgentReader::leaderPointForEmployee` уже есть), по аналогии с тем, как `agents` уже читаются через `PointAgentReader::attachAgents`.
+
+## Статус закрытия
+
+Проверено по коду на `origin/main` 2026-07-21 — дефект устранён.
+Чтение лидера переведено на Core: `PointController` отдаёт `PointAgentReader::attachLeader`, список — `attachLeaders`; читается leader-assignment по `core_location_external_id`, а не замороженная колонка `group_leader_id`.

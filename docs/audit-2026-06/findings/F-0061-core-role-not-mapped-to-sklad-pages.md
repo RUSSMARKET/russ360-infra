@@ -44,3 +44,8 @@ status: open
 ## Направление фикса
 
 Ввести единый маппер Core `project_role` → sklad `roles.code` в read-path (`CurrentProjectService::getEffectiveRole`/`getEffectiveRoleModel`), симметричный rusaifin `CoreRoleMapper`; либо добавить недостающие коды в `roles` + `role_pages`. Решение — за владельцем (затрагивает словарь ролей sklad).
+
+## Проверка статуса
+
+**2026-07-21 — сверено с `origin/main`: дефект НА МЕСТЕ.**
+`CurrentProjectService:150` отдаёт сырой Core `project_role`; словарь ролей sklad — 4 кода, маппера нет → для `agent` роль null и `getPages()` пуст.

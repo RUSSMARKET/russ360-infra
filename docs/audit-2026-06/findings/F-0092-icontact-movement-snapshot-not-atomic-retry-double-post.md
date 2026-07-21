@@ -27,3 +27,8 @@ status: open
 
 ## Направление фикса
 Передавать idempotency-key (хеш `sync_task_id`+группа) в `issue` с уникальностью на meta движения, ЛИБО обновлять `last_applied_qty` в одной транзакции с движением (обернуть per-group apply в один `DB::transaction`, вызывающий no-own-tx вариант issue).
+
+## Проверка статуса
+
+**2026-07-21 — сверено с `origin/main`: дефект НА МЕСТЕ.**
+`InventoryService:1107` создаёт движение без ключа идемпотентности; `last_applied_qty` пишется отдельным `save()` вне транзакции — crash-окно открыто.

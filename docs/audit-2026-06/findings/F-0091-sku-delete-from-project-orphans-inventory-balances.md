@@ -27,3 +27,8 @@ status: open
 
 ## Направление фикса
 В `deleteFromProject` блокировать удаление (или soft-деактивировать pivot) при наличии ненулевого `inventory_balances` для `(project, sku)`; повторить guard-паттерн `deleteIfEmpty`, уже применённый к категориям.
+
+## Проверка статуса
+
+**2026-07-21 — сверено с `origin/main`: дефект НА МЕСТЕ.**
+`SKUService::deleteFromProject` — голый `firstOrFail()->delete()` без проверки `inventory_balances` и мягкой деактивации.

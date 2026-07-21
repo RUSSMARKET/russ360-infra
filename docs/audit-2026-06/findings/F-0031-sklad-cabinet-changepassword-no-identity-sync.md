@@ -26,3 +26,8 @@ Bidirectional sync доведён до rusaifin (admin + cabinet), но каби
 
 ## Направление фикса (1-2 строки, НЕ реализовано)
 Добавить identity-sync в `UserContext::changePassword` (зеркально rusaifin `UserService::changePassword`), с теми же fatal/rollback-семантиками.
+
+## Проверка статуса
+
+**2026-07-21 — сверено с `origin/main`: дефект НА МЕСТЕ.**
+`rusaisklad_back/UserContext.php:127-128` меняет пароль локально без пуша в identity; исходящей синхронизации на кабинетном пути нет.
