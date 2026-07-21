@@ -82,11 +82,13 @@ services:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/rootfs:ro,rslave
+      - /var/lib/node_exporter/textfile:/var/lib/node_exporter/textfile:ro
     command:
       - '--path.procfs=/host/proc'
       - '--path.sysfs=/host/sys'
       - '--path.rootfs=/rootfs'
       - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/.+|var/lib/docker/.+)($$|/)'
+      - '--collector.textfile.directory=/var/lib/node_exporter/textfile'
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.52.1

@@ -591,3 +591,183 @@ groups:
               expression: A
               conditions:
                 - evaluator: { type: lt, params: [10] }
+
+  # Бэкапы. Повод: бэкап fintech (47G боевых данных) падал каждую ночь с
+  # февраля по июль 2026 — Hestia требует свободного места вдвое больше
+  # размера пользователя, места не было, ошибка уходила только в её
+  # собственный лог. Пять месяцев единственной копией была февральская.
+  # Метрики пишет scripts/backup-metrics.sh (textfile collector), метрику
+  # выкачки на бэкап-сервер присылает сам backup.sh с 82.146.45.198.
+  #
+  # Пороги: суточный цикл + запас на длительный прогон, поэтому 30ч на
+  # создание архива и 32ч на его выкачку (выкачка идёт через 45 минут
+  # после Hestia и сама занимает до получаса).
+  - orgId: 1
+    name: russ360-backups
+    folder: Russ360
+    interval: 5m
+    rules:
+      - uid: russ360-backup-stale
+        title: 'Бэкап не создавался >30ч (Hestia)'
+        condition: C
+        for: 15m
+        noDataState: NoData
+        execErrState: Alerting
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Бэкап {{ $labels.user }} не создавался {{ printf "%.1f" $values.A.Value }} ч. Смотреть /usr/local/hestia/log/backup.log — типовая причина "not enough disk space" (нужно 2x размера пользователя).'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: >
+                (time() - backup_last_success_timestamp_seconds{scope="hestia"}) / 3600
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [30] }
+
+      - uid: russ360-backup-missing
+        title: 'Бэкап включён, но архива нет вообще'
+        condition: C
+        for: 15m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: 'У пользователя {{ $labels.user }} бэкап включён в Hestia, но архива в /backup нет ни одного — падает молча, метрика возраста для него не существует.'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: >
+                backup_enabled == 1
+                unless on(user) backup_last_success_timestamp_seconds{scope="hestia"}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      - uid: russ360-backup-hestia-errors
+        title: 'Hestia отрапортовала ошибку бэкапа'
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Бэкап Hestia отрапортовал {{ printf "%.0f" $values.A.Value }} ошибок за последние сутки. Лог: /usr/local/hestia/log/backup.log'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: 'backup_hestia_errors_recent'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      - uid: russ360-backup-puller-stale
+        title: 'Выкачка на бэкап-сервер не отработала >32ч'
+        condition: C
+        for: 15m
+        noDataState: Alerting
+        execErrState: Alerting
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Бэкап-сервер 82.146.45.198 не забирал архивы {{ printf "%.1f" $values.A.Value }} ч. Копии остаются только на прод-сервере. Смотреть /home/backup.log на бэкап-сервере.'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: '(time() - backup_puller_last_success_timestamp_seconds) / 3600'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [32] }
+
+      - uid: russ360-backup-puller-failures
+        title: 'Выкачка бэкапов: часть файлов не скачалась'
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: 'При последней выкачке не скачалось файлов: {{ printf "%.0f" $values.A.Value }}. Смотреть /home/backup.log на 82.146.45.198.'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: 'backup_puller_failed_files'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      - uid: russ360-backup-server-disk
+        title: 'Диск бэкап-сервера >85%'
+        condition: C
+        for: 15m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: 'На бэкап-сервере 82.146.45.198 занято {{ printf "%.0f" $values.A.Value }}%. При переполнении ретенция начнёт вытеснять боевые копии.'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: '100 * (1 - backup_puller_disk_free_bytes / backup_puller_disk_total_bytes)'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [85] }
