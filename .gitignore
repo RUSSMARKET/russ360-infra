@@ -32,3 +32,7 @@ infra/observability/.env
 
 # Session screenshots (агентские артефакты)
 /*.png
+
+# Сгенерированные артефакты идентификации (пересобираются build_docx.py)
+docs/identification/*.docx
+docs/identification/*.pdf
