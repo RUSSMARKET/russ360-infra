@@ -24,7 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from telegram import Update
 from telegram.constants import ParseMode
-from telegram.error import BadRequest
+from telegram.error import BadRequest, NetworkError, TimedOut
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -197,18 +197,46 @@ def _work_takes_arg(work):
         return False
 
 
-async def send_long(bot, chat_id, text, parse_mode=ParseMode.HTML):
-    for chunk_start in range(0, len(text), 4000):
-        chunk = text[chunk_start : chunk_start + 4000]
+SEND_RETRIES = 3
+SEND_BACKOFF = 3.0  # seconds, doubles each attempt
+
+
+async def _send_message_resilient(bot, chat_id, chunk, parse_mode):
+    """Send one chunk, retrying transient timeouts/network errors with backoff.
+
+    The link timeweb→api.telegram.org flakes intermittently (TimedOut) — a single
+    send must not silently drop the whole message (this ate the 23.07 daily report).
+    """
+    delay = SEND_BACKOFF
+    for attempt in range(1, SEND_RETRIES + 1):
         try:
             await bot.send_message(
                 chat_id, chunk, parse_mode=parse_mode, disable_web_page_preview=True,
             )
+            return
         except BadRequest as e:
             # Never let a stray unescaped <...> in dynamic content swallow the whole
-            # answer — fall back to plain text so the user still gets the content.
-            log.warning("HTML send failed (%s); resending as plain text", e)
-            await bot.send_message(chat_id, chunk, disable_web_page_preview=True)
+            # answer — fall back to plain text (still retried on network flake).
+            if parse_mode is not None:
+                log.warning("HTML send failed (%s); resending as plain text", e)
+                await _send_message_resilient(bot, chat_id, chunk, None)
+                return
+            raise
+        except (TimedOut, NetworkError) as e:
+            if attempt == SEND_RETRIES:
+                raise
+            log.warning(
+                "send timed out (attempt %d/%d): %s; retry in %.0fs",
+                attempt, SEND_RETRIES, e, delay,
+            )
+            await asyncio.sleep(delay)
+            delay *= 2
+
+
+async def send_long(bot, chat_id, text, parse_mode=ParseMode.HTML):
+    for chunk_start in range(0, len(text), 4000):
+        chunk = text[chunk_start : chunk_start + 4000]
+        await _send_message_resilient(bot, chat_id, chunk, parse_mode)
 
 
 async def run_with_progress(update, context, work, empty="Пусто."):
@@ -991,7 +1019,10 @@ async def job_daily_report(context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         log.exception("daily report failed")
         try:
-            await context.bot.send_message(CHAT_ID, "⚠️ Не смог собрать дневной отчёт, см. логи obs-tgbot")
+            await _send_message_resilient(
+                context.bot, CHAT_ID,
+                "⚠️ Не смог собрать дневной отчёт, см. логи obs-tgbot", None,
+            )
         except Exception:
             pass
     await _consolidate_memory(context)
@@ -1096,7 +1127,17 @@ async def post_init(app: Application):
 
 
 def main():
-    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .connect_timeout(15)
+        .read_timeout(30)
+        .write_timeout(30)
+        .pool_timeout(10)
+        .get_updates_read_timeout(30)
+        .post_init(post_init)
+        .build()
+    )
 
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("start", cmd_help))
