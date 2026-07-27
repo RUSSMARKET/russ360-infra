@@ -32,3 +32,13 @@ status: open
 
 **2026-07-21 — сверено с `origin/main`: дефект НА МЕСТЕ.**
 `InventoryService:1107` создаёт движение без ключа идемпотентности; `last_applied_qty` пишется отдельным `save()` вне транзакции — crash-окно открыто.
+
+## Фикс на dev (2026-07-27)
+
+Коммит `30bc9b6` (rusaisklad_back, ветка `dev`). `applyDeltas` проводит группу в одной
+`DB::transaction`: `issue()` (её собственная транзакция становится savepoint), простановка
+`POSTED`/`inventory_movement_id` и сдвиг `last_applied_qty` коммитятся вместе, откат снимает
+движение целиком. Idempotency-key в `meta` движения НЕ вводился — окно краша закрыто
+атомарностью. Тест: `tests/Feature/IContactSyncProcessorTest::test_failure_after_movement_creation_rolls_back_the_movement`.
+
+`closed` — после прод-деплоя и сверки с `origin/main`.

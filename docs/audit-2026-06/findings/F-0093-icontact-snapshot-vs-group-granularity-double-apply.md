@@ -27,3 +27,17 @@ Over-issue для отчётов с внутрисессионными дубл�
 
 ## Направление фикса
 Включить `occurred_at` в ключ снапшота, либо агрегировать все строки одного snapshot-ключа перед delta/apply.
+
+## Фикс на dev (2026-07-27)
+
+Коммит `30bc9b6` (rusaisklad_back, ветка `dev`). Верификация подтвердила радиус: `occurred_at`
+парсер выводит из ДАТЫ строки, поэтому дубли `session|sku` попадали в одну apply-группу, но delta
+считалась построчно против одного `last_applied_qty` — каждая строка несла полный qty (кратное
+списание внутри одного прогона). Выбран второй вариант из «направления фикса»: `calculateDeltas`
+агрегирует строки по ключу снапшота и считает delta один раз от суммы qty; `applyDeltas` группирует
+по тому же ключу и пишет `last_applied_qty` = сумма qty группы. Группа с неразрешёнными строками
+(`unknown_user`/`unknown_sku`) не применяется частично. Тесты:
+`IContactSyncProcessorTest::test_duplicate_session_sku_rows_are_applied_once_as_a_sum`,
+`::test_group_with_unresolved_row_is_not_applied_partially`.
+
+`closed` — после прод-деплоя и сверки с `origin/main`.

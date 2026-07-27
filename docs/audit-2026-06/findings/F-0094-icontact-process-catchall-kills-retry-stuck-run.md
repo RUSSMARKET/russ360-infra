@@ -27,3 +27,17 @@ Catch-all конвертирует retryable-сбой в терминальны�
 
 ## Направление фикса
 Re-throw retryable-исключений (различать retryable vs terminal), чтобы `tries`/`backoff` работали; добавить `failed()`-handler и/или reaper, освобождающий run'ы, застрявшие в QUEUED/RUNNING дольше TTL.
+
+## Фикс на dev (2026-07-27)
+
+Коммит `30bc9b6` (rusaisklad_back, ветка `dev`). `process()` принимает `canRetry` и при транзиентной
+ошибке (`ConnectionException`, `RequestException` 429/5xx, «report was not ready in time», «binary
+download failed») возвращает задачу в `QUEUED` и пробрасывает исключение — `tries=3`/`backoff()`
+джобы снова работают; терминальные ошибки по-прежнему `FAILED` без re-throw. Добавлены:
+`RunIContactSyncTaskJob::failed()` (добивает задачу и пересчитывает run после OOM/timeout) и команда
+`inventory:reap-icontact-stuck-runs {--project=*} {--ttl=} {--dry-run}` (TTL по умолчанию
+`icontact.schedule.stale_minutes`=180), поставленная в расписание hourly БЕЗ привязки к
+`icontact.schedule.enabled` — залипший ручной прогон тоже надо разлочивать. Тесты:
+`tests/Feature/IContactSyncStuckRunReaperTest`, `IContactSyncProcessorTest::test_retryable_*`.
+
+`closed` — после прод-деплоя и сверки с `origin/main`.
