@@ -18,7 +18,8 @@ Canary позволяет проверить пользовательский п
   URLs для API/OIDC;
 - `a1-rusaifin-proxy-locations.nginx.conf` — маршруты Rusaifin и полного SSO
   browser-flow; ранний canary-only `fetch`/XHR shim также перехватывает legacy
-  hostnames, разрешённые до гидрации runtime config;
+  hostnames, разрешённые до гидрации runtime config; logout-return останавливает
+  автоматический повторный вход на отдельном no-store экране;
 - `a1-rusaifin-log-format.nginx.conf` — access log без OAuth query, referrer,
   cookies и authorization headers;
 - `a1-rusaifin-canary.nftables.conf` — вход только на 22, 80 и 443;
