@@ -120,6 +120,21 @@ callback стабильно доходили через `edge2` с `200`. OAuth 
 закешированном bundle. Это прикладная совместимость тестового hostname, а не
 изменение вывода о сетевом инциденте.
 
+Повторный тест в 16:48–16:51 МСК снова стабильно получил с `edge2` HTML
+`/products/` и `/auth/`, но ни один следующий `/oauth/authorize` на canary не
+пришёл. В журнале origin SSO новых запросов от Yota-IP также не было. Значит,
+после отрисовки страницы браузер уходил на абсолютный `sso.rusaifin.ru` и
+возвращался на старый проблемный публичный путь. После этого canary расширен
+на полный SSO browser-flow: OIDC runtime issuer, authorize/token/logout,
+страницы входа, SSO API и их статические assets остаются на
+`edge2.rusaifin.ru`, а внутренняя прокси-связь использует SNI
+`sso.rusaifin.ru`. Внешняя проверка подтвердила цепочку
+`authorize -> edge2/auth/login` и загрузку SSO assets.
+
+Canary access log переведён на отдельный безопасный формат без query string,
+referrer, cookies и authorization headers, чтобы OAuth callback codes не
+попадали в новые записи. Error log оставляет только critical-события.
+
 ## Аудит инфраструктуры 2026-08-03
 
 - Основные `rusaifin.ru` vhost, API, SSO discovery, HTTP/2, TLS 1.2/1.3,
