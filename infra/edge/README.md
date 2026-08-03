@@ -15,7 +15,8 @@ Canary позволяет проверить пользовательский п
 ## Состав
 
 - `a1-rusaifin-canary.nginx.conf` — TLS reverse proxy и same-origin runtime
-  URLs для API/OIDC;
+  URLs для API/OIDC; ранний canary-only `fetch`/XHR shim также перехватывает
+  legacy API hostname, разрешённый до гидрации runtime config;
 - `a1-rusaifin-canary.nftables.conf` — вход только на 22, 80 и 443;
 - `a1-certbot-deploy-hook` — проверка конфигурации и reload nginx после
   продления сертификата;
