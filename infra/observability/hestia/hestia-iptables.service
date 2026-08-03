@@ -1,0 +1,15 @@
+[Unit]
+Description=Load persistent Hestia firewall rules
+DefaultDependencies=no
+Wants=network-pre.target local-fs.target
+Before=network-pre.target
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=-/usr/local/hestia/bin/v-update-firewall-ipset load
+ExecStart=/sbin/iptables-restore --wait=10 /etc/sysconfig/iptables
+
+[Install]
+WantedBy=multi-user.target
