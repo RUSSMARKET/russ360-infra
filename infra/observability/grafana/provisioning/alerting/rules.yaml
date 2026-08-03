@@ -592,6 +592,127 @@ groups:
               conditions:
                 - evaluator: { type: lt, params: [10] }
 
+      - uid: russ360-rusaifin-incomplete-assets
+        title: 'Rusaifin: неполная передача frontend-asset'
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.server }}: {{ printf "%.0f" $values.A.Value }} неполных {{ $labels.resource_class }} ответов за 5 минут по {{ $labels.protocol }}'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: >
+                sum by (server, protocol, resource_class)
+                (rusaifin_netdiag_incomplete_responses_window{
+                  server="fintech.rusaifin.ru",
+                  resource_class=~"nuxt_js|nuxt_other"
+                })
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      - uid: russ360-rusaifin-client-abort-burst
+        title: 'Rusaifin: серия клиентских обрывов (nginx 499)'
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.server }}: {{ printf "%.0f" $values.A.Value }} клиентских обрывов за 5 минут по {{ $labels.protocol }}'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: >
+                sum by (server, protocol)
+                (rusaifin_netdiag_client_aborts_window{
+                  server=~"fintech.rusaifin.ru|server.rusaifin.ru"
+                })
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [3] }
+
+      - uid: russ360-rusaifin-netdiag-stale
+        title: 'Rusaifin: transport-диагностика не обновляется'
+        condition: C
+        for: 2m
+        noDataState: Alerting
+        execErrState: Alerting
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Transport-метрики rusaifin не обновлялись {{ printf "%.0f" $values.A.Value }} секунд'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: 'time() - rusaifin_netdiag_exporter_last_run_timestamp_seconds'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [180] }
+
+      - uid: russ360-rusaifin-bootstrap-failure
+        title: 'Rusaifin: iOS не загрузил frontend bootstrap'
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: 'iOS bootstrap {{ $labels.event }}: {{ printf "%.0f" $values.A.Value }} сигналов за 5 минут по {{ $labels.protocol }}'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: >
+                sum by (protocol, event)
+                (rusaifin_netdiag_bootstrap_events_window{
+                  server="fintech.rusaifin.ru"
+                })
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
   # Бэкапы. Повод: бэкап fintech (47G боевых данных) падал каждую ночь с
   # февраля по июль 2026 — Hestia требует свободного места вдвое больше
   # размера пользователя, места не было, ошибка уходила только в её

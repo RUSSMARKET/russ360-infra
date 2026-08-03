@@ -1,0 +1,4 @@
+# Per-vhost opt-in for rusaifin transport diagnostics.
+# The format is declared by /etc/nginx/conf.d/rusaifin-netdiag-log-format.conf.
+access_log /var/log/rusaifin-netdiag/access.jsonl rusaifin_netdiag;
+error_log  /var/log/rusaifin-netdiag/error.log info;

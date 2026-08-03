@@ -28,6 +28,7 @@ volumes:
   grafana_data:
   glitchtip_pg_data:
   glitchtip_uploads:
+  promtail_positions:
 
 x-common-labels: &common-labels
   stack: observability
@@ -137,10 +138,12 @@ services:
       tier: logs
     volumes:
       - ./promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - promtail_positions:/tmp
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - ${RUSAIFIN_PROD_LOGS:-/tmp/empty-prod}:/var/log/rusaifin-prod:ro
       - ${RUSAIFIN_DEV_LOGS:-/tmp/empty-dev}:/var/log/rusaifin-dev:ro
+      - ${RUSAIFIN_NETDIAG_LOGS:-/tmp/empty-netdiag}:/var/log/rusaifin-netdiag:ro
     command: -config.file=/etc/promtail/promtail-config.yml -config.expand-env=true
     environment:
       HOSTNAME: ${OBS_HOSTNAME:-local}

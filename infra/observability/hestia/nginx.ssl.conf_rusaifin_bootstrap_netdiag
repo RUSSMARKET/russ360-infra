@@ -1,0 +1,14 @@
+# Fixed, bodyless endpoints for the pre-Nuxt iOS bootstrap probe.
+# The event kind is encoded only in the path. Query strings, page URLs,
+# resource names, request bodies and browser storage values are never sent.
+location = /__netdiag/bootstrap/resource-error {
+    if ($request_method != POST) { return 405; }
+    add_header Cache-Control "no-store" always;
+    return 204;
+}
+
+location = /__netdiag/bootstrap/timeout {
+    if ($request_method != POST) { return 405; }
+    add_header Cache-Control "no-store" always;
+    return 204;
+}

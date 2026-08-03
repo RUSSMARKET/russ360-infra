@@ -76,3 +76,28 @@ scrape_configs:
           job: laravel
           host: ${HOSTNAME}
           __path__: /var/log/rusaifin-dev/laravel*.log
+
+  # ---------- rusaifin public-edge transport diagnostics ----------
+  # Only selected rusaifin.ru vhosts opt in. The nginx format deliberately
+  # excludes query strings/referrers because OAuth URLs can carry secrets.
+  - job_name: rusaifin_netdiag
+    static_configs:
+      - targets: [localhost]
+        labels:
+          service: rusaifin
+          env: prod
+          job: nginx-netdiag
+          host: ${HOSTNAME}
+          __path__: /var/log/rusaifin-netdiag/access*.jsonl
+    pipeline_stages:
+      - json:
+          expressions:
+            server_name: server_name
+            protocol: protocol
+            status: status
+            request_completion: request_completion
+      - labels:
+          server_name:
+          protocol:
+          status:
+          request_completion:

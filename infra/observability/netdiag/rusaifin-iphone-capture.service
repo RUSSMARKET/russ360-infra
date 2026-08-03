@@ -1,0 +1,25 @@
+[Unit]
+Description=Bounded TCP-header capture for rusaifin iPhone navigations
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/rusaifin-iphone-capture
+User=root
+Group=root
+UMask=0077
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadOnlyPaths=/var/log/rusaifin-netdiag/access.jsonl
+ReadWritePaths=/var/log/rusaifin-netdiag/pcap /var/lib/rusaifin-netdiag-capture
+
+[Install]
+WantedBy=multi-user.target

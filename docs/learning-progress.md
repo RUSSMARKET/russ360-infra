@@ -81,3 +81,26 @@
 ## Update 2026-05-18 — пост-cutover
 
 Прод-cutover пройден 2026-05-13 (см. memory `m2_prod_cutover_done`). Stage 1 для rusaisklad локаций закрыт 2026-05-18 (см. `stage1_locations_mirrored_2026-05-18`). Активные риски сейчас задокументированы в `russ360-audit-2026-05-18.md` — двойное чтение Memberships в rusaifin и logout без revoke на фронтах. Это P0, но не блокеры прода; работа по ним планируется автором отдельно.
+
+---
+
+## Update 2026-08-03 — Safari/iOS transport diagnostics
+
+Для `fintech.rusaifin.ru` подтверждены неполные HTTP/2-передачи больших Nuxt-assets,
+которые nginx успевает начать со статусом 200. Важный физический вывод: nginx
+`body_bytes_sent` и `request_completion=OK` означают запись в TCP-сокет, а не
+гарантированную доставку данных Safari. Искусственный клиентский timeout это
+проверил: curl прочитал только 16 KiB, пока nginx уже записал в сокет все 328 KiB.
+
+На проде включена ограниченная доменами rusaifin transport-диагностика:
+структурированный nginx log, Prometheus-метрики, Loki/Grafana alerts и максимум
+50 TCP-header captures только после iPhone-навигации на fintech. Подробности и
+rollback: `infra/observability/netdiag/README.md`.
+
+В build `20260803125452` добавлен независимый от Nuxt/GlitchTip iOS-сигнал:
+ошибка загрузки same-origin `/_nuxt/` до mount или bootstrap-timeout отправляется
+на один из двух фиксированных bodyless endpoint и повторяется после reload, если
+сеть не дала доставить событие сразу. Сигнал не содержит URL страницы, query,
+имени ресурса, содержимого storage или user id. Также восстановлены четыре
+фактически отсутствовавших Manrope woff2-файла; это убирает лишние 404/499 и
+ожидание шрифта, но не считается корневым исправлением сетевых обрывов.

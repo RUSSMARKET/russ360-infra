@@ -1,0 +1,11 @@
+# Immutable Nuxt build chunks: 404 on miss instead of the SPA @fallback (which
+# returns index.html/200 and white-screens stale clients with "Couldn't resolve
+# component"). A real 404 lets Nuxt's chunk-error handler auto-reload to the
+# fresh build. See incident 2026-06-10.
+location ^~ /_nuxt/ {
+    root       /home/fintech/web/fintech.rusaifin.ru/public_html/.output/public;
+    try_files  $uri =404;
+    expires    max;
+    access_log /var/log/apache2/domains/fintech.rusaifin.ru.log combined;
+    access_log /var/log/rusaifin-netdiag/access.jsonl rusaifin_netdiag;
+}

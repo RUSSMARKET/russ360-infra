@@ -1,0 +1,15 @@
+[Unit]
+Description=Export rusaifin nginx transport diagnostics for node_exporter
+After=nginx.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/rusaifin-netdiag-metrics
+User=root
+Group=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/var/log/rusaifin-netdiag
+ReadWritePaths=/var/lib/node_exporter/textfile
