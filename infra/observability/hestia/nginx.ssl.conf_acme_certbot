@@ -1,0 +1,6 @@
+# HTTPS endpoint is useful for validators following a redirect from port 80.
+location ^~ /.well-known/acme-challenge/ {
+    default_type text/plain;
+    root /var/lib/letsencrypt;
+    try_files $uri =404;
+}

@@ -1,0 +1,34 @@
+#!/bin/sh
+set -eu
+
+# Certbot deploy hook for certificates managed outside Hestia.  Certbot exports
+# these variables only after a successful renewal.
+: "${RENEWED_LINEAGE:?Certbot did not provide RENEWED_LINEAGE}"
+
+case "$(basename "$RENEWED_LINEAGE")" in
+    mail.rusaifin.ru)
+        web_ssl=/home/rusaifin/conf/web/mail.rusaifin.ru/ssl
+        mail_ssl=/home/rusaifin/conf/mail/rusaifin.ru/ssl
+
+        install -o root -g root -m 0640 "$RENEWED_LINEAGE/cert.pem" "$web_ssl/mail.rusaifin.ru.crt"
+        install -o root -g root -m 0640 "$RENEWED_LINEAGE/chain.pem" "$web_ssl/mail.rusaifin.ru.ca"
+        install -o root -g root -m 0640 "$RENEWED_LINEAGE/fullchain.pem" "$web_ssl/mail.rusaifin.ru.pem"
+        install -o root -g root -m 0640 "$RENEWED_LINEAGE/privkey.pem" "$web_ssl/mail.rusaifin.ru.key"
+
+        install -o rusaifin -g mail -m 0644 "$RENEWED_LINEAGE/cert.pem" "$mail_ssl/rusaifin.ru.crt"
+        install -o rusaifin -g mail -m 0644 "$RENEWED_LINEAGE/chain.pem" "$mail_ssl/rusaifin.ru.ca"
+        install -o rusaifin -g mail -m 0644 "$RENEWED_LINEAGE/fullchain.pem" "$mail_ssl/rusaifin.ru.pem"
+        install -o rusaifin -g mail -m 0640 "$RENEWED_LINEAGE/privkey.pem" "$mail_ssl/rusaifin.ru.key"
+
+        install -o root -g root -m 0644 "$RENEWED_LINEAGE/fullchain.pem" /etc/dovecot/ssl/server.crt
+        install -o root -g root -m 0600 "$RENEWED_LINEAGE/privkey.pem" /etc/dovecot/ssl/server.key
+
+        nginx -t
+        apache2ctl configtest
+        systemctl reload nginx apache2 exim4 dovecot
+        ;;
+    *)
+        nginx -t
+        systemctl reload nginx
+        ;;
+esac

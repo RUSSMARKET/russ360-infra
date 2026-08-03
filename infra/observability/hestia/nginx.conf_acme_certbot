@@ -1,0 +1,6 @@
+# Keep Certbot HTTP-01 validation independent of the suspended Hestia webroot.
+location ^~ /.well-known/acme-challenge/ {
+    default_type text/plain;
+    root /var/lib/letsencrypt;
+    try_files $uri =404;
+}
