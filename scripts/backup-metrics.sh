@@ -19,6 +19,7 @@ set -euo pipefail
 BACKUP_DIR="${BACKUP_DIR:-/backup}"
 TEXTFILE_DIR="${TEXTFILE_DIR:-/var/lib/node_exporter/textfile}"
 HESTIA_LOG="${HESTIA_LOG:-/usr/local/hestia/log/backup.log}"
+HESTIA_USERS_DIR="${HESTIA_USERS_DIR:-/usr/local/hestia/data/users}"
 OUT="$TEXTFILE_DIR/backups.prom"
 
 mkdir -p "$TEXTFILE_DIR"
@@ -36,7 +37,13 @@ trap 'rm -f "$tmp"' EXIT
 	echo "# TYPE backup_size_bytes gauge"
 } >> "$tmp"
 
-# Hestia-бэкапы пользователей: имя файла <user>.<дата>_<время>.tar
+# Для каждого пользователя публикуем ровно одну серию — самый новый архив.
+# Несколько retained shift-архивов раньше создавали duplicate label sets, и
+# node_exporter оставлял значение самого старого файла.
+declare -A newest_mtime=()
+declare -A newest_size=()
+declare -A newest_scope=()
+
 for f in "$BACKUP_DIR"/*.tar; do
 	[ -e "$f" ] || continue
 	base=$(basename "$f")
@@ -49,9 +56,18 @@ for f in "$BACKUP_DIR"/*.tar; do
 
 	mtime=$(stat -c %Y "$f")
 	size=$(stat -c %s "$f")
-	echo "backup_last_success_timestamp_seconds{scope=\"$scope\",user=\"$name\"} $mtime" >> "$tmp"
-	echo "backup_size_bytes{scope=\"$scope\",user=\"$name\"} $size" >> "$tmp"
+	if [[ ! -v "newest_mtime[$name]" ]] || (( mtime > newest_mtime[$name] )); then
+		newest_mtime[$name]=$mtime
+		newest_size[$name]=$size
+		newest_scope[$name]=$scope
+	fi
 done
+
+while IFS= read -r name; do
+	[ -n "$name" ] || continue
+	echo "backup_last_success_timestamp_seconds{scope=\"${newest_scope[$name]}\",user=\"$name\"} ${newest_mtime[$name]}" >> "$tmp"
+	echo "backup_size_bytes{scope=\"${newest_scope[$name]}\",user=\"$name\"} ${newest_size[$name]}" >> "$tmp"
+done < <(printf '%s\n' "${!newest_mtime[@]}" | sort)
 
 # Пользователи, у которых бэкап включён, но свежего архива в /backup нет
 # вообще — иначе упавший пользователь просто исчезает из метрик и алерт
@@ -61,7 +77,7 @@ done
 	echo "# TYPE backup_enabled gauge"
 } >> "$tmp"
 
-for udir in /usr/local/hestia/data/users/*/; do
+for udir in "$HESTIA_USERS_DIR"/*/; do
 	user=$(basename "$udir")
 	[ -f "$udir/user.conf" ] || continue
 	backups=$(grep -oP "BACKUPS='\K[^']*" "$udir/user.conf" 2>/dev/null || echo 0)

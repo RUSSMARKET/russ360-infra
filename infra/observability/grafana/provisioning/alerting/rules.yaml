@@ -840,7 +840,7 @@ groups:
                 - evaluator: { type: gt, params: [32] }
 
       - uid: russ360-backup-puller-failures
-        title: 'Выкачка бэкапов: часть файлов не скачалась'
+        title: 'Выкачка бэкапов: часть файлов не скачалась или не прошла проверку'
         condition: C
         for: 5m
         noDataState: OK
@@ -848,7 +848,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: 'При последней выкачке не скачалось файлов: {{ printf "%.0f" $values.A.Value }}. Смотреть /home/backup.log на 82.146.45.198.'
+          summary: 'При последней выкачке не скачалось или не прошло SHA-256/tar-проверку файлов: {{ printf "%.0f" $values.A.Value }}. Смотреть /home/backup.log на 82.146.45.198.'
         data:
           - refId: A
             relativeTimeRange: { from: 3600, to: 0 }
