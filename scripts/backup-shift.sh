@@ -5,6 +5,7 @@
 # в /backup, откуда его забирает backup.sh с бэкап-сервера.
 
 set -uo pipefail
+umask 077
 
 DAYS=7
 OUT=/backup
