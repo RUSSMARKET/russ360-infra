@@ -1,0 +1,19 @@
+diff --git a/pkg/sqlite/sanitize.go b/pkg/sqlite/sanitize.go
+index 0a93443..87c909b 100644
+--- a/pkg/sqlite/sanitize.go
++++ b/pkg/sqlite/sanitize.go
+@@ -138,10 +138,10 @@ func sanitizePipelineStream(r io.Reader, w io.Writer, columnMap map[string][]str
+ 
+ 			// --- Transforms ---
+ 
+-			// 1. Backtick → double-quote
+-			if strings.ContainsRune(s, '`') {
+-				s = strings.ReplaceAll(s, "`", `"`)
+-			}
++			// Backticks inside SQLite string literals are application data (for
++			// example Loki LogQL regex delimiters in Grafana alert rules). The
++			// sqlite3 dump already double-quotes table identifiers, so replacing
++			// every backtick here corrupts valid JSON stored in alert_rule.data.
+ 
+ 			// 2. char( → chr(
+ 			if strings.Contains(s, "char") {

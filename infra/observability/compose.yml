@@ -26,6 +26,7 @@ volumes:
   prometheus_data:
   loki_data:
   grafana_data:
+  grafana_pg_data:
   glitchtip_pg_data:
   glitchtip_uploads:
   promtail_positions:
@@ -149,13 +150,38 @@ services:
       HOSTNAME: ${OBS_HOSTNAME:-local}
 
   # ═════════════════════ UI ═════════════════════
+  grafana-postgres:
+    image: postgres:16-alpine
+    container_name: obs-grafana-postgres
+    restart: unless-stopped
+    labels:
+      <<: *common-labels
+      tier: ui
+    environment:
+      POSTGRES_DB: grafana
+      POSTGRES_USER: grafana
+      POSTGRES_PASSWORD: ${GRAFANA_DB_PASSWORD:?set in .env}
+    volumes:
+      - grafana_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U grafana -d grafana"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   grafana:
     image: grafana/grafana:11.4.0
     container_name: obs-grafana
     extra_hosts:
       - "api.telegram.org:149.154.167.220"
     restart: unless-stopped
-    depends_on: [prometheus, loki]
+    depends_on:
+      prometheus:
+        condition: service_started
+      loki:
+        condition: service_started
+      grafana-postgres:
+        condition: service_healthy
     labels:
       <<: *common-labels
       tier: ui
@@ -165,12 +191,12 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_SERVER_ROOT_URL: ${GF_SERVER_ROOT_URL:-http://localhost:3030}
-      # Alert evaluation writes concurrently. WAL plus bounded SQLite retries
-      # prevents transient locks from becoming false alert errors and /login 500s.
-      # PostgreSQL remains the long-term destination for Grafana metadata.
-      GF_DATABASE_WAL: "true"
-      GF_DATABASE_QUERY_RETRIES: "5"
-      GF_DATABASE_TRANSACTION_RETRIES: "10"
+      GF_DATABASE_TYPE: postgres
+      GF_DATABASE_HOST: obs-grafana-postgres:5432
+      GF_DATABASE_NAME: grafana
+      GF_DATABASE_USER: grafana
+      GF_DATABASE_PASSWORD: ${GRAFANA_DB_PASSWORD:?set in .env}
+      GF_DATABASE_SSL_MODE: disable
       # Telegram bot token (secret) for the provisioned contact point. Non-empty placeholder
       # default: Grafana crash-loops on an EMPTY Telegram token at provisioning time; with a
       # placeholder it boots healthy and delivery just fails (logged) until a real token is set

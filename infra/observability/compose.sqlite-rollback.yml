@@ -1,0 +1,8 @@
+services:
+  grafana:
+    environment:
+      GF_DATABASE_TYPE: sqlite3
+      GF_DATABASE_PATH: /var/lib/grafana/grafana.db
+      GF_DATABASE_WAL: "true"
+      GF_DATABASE_QUERY_RETRIES: "5"
+      GF_DATABASE_TRANSACTION_RETRIES: "10"

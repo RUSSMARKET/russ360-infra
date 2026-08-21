@@ -25,6 +25,7 @@ infra/observability/.env
 *.log
 *.pid
 /tmp/
+infra/observability/.backups/
 
 # Claude / agent state
 .claude/

@@ -13,6 +13,7 @@ Status: [`/cutover-status/track-a-observability-infra.md`](../../cutover-status/
 | `obs-loki` | `grafana/loki:3.3.2` | `3100` | logs | log store (7d retention) |
 | `obs-promtail` | `grafana/promtail:3.3.2` | — | logs | log shipper |
 | `obs-grafana` | `grafana/grafana:11.4.0` | `3030` | ui | UI |
+| `obs-grafana-postgres` | `postgres:16-alpine` | — | ui | Grafana metadata DB |
 | `obs-glitchtip-postgres` | `postgres:16-alpine` | — | errors | DB |
 | `obs-glitchtip-redis` | `redis:7-alpine` | — | errors | broker |
 | `obs-glitchtip-migrate` | `glitchtip/glitchtip:v4.1` | — | errors | one-shot init |
@@ -21,9 +22,8 @@ Status: [`/cutover-status/track-a-observability-infra.md`](../../cutover-status/
 
 Все порты слушают только `127.0.0.1`. Наружу выпускаются через nginx vhost с basic auth (только на prod).
 
-Grafana пока хранит metadata во встроенной SQLite. Для конкурентной работы alert-engine
-включены WAL и bounded query/transaction retries; это устраняет краткие
-`database is locked`, но не отменяет плановую миграцию metadata в PostgreSQL.
+Grafana хранит metadata в отдельном PostgreSQL. Старый SQLite volume сохраняется
+для rollback, но к работающему контейнеру не подключён как основная БД.
 
 ### Группировка контейнеров
 
