@@ -531,7 +531,7 @@ groups:
             model:
               refId: A
               instant: true
-              expr: 'probe_success{job=~"blackbox-.*"}'
+              expr: 'probe_success{job=~"blackbox-frontend-shell|blackbox-frontend-status|blackbox-service-status"}'
           - refId: C
             datasourceUid: __expr__
             model:
@@ -558,7 +558,7 @@ groups:
             model:
               refId: A
               instant: true
-              expr: 'probe_http_status_code{job=~"blackbox-.*"}'
+              expr: 'probe_http_status_code{job=~"blackbox-frontend-shell|blackbox-frontend-status|blackbox-service-status"}'
           - refId: C
             datasourceUid: __expr__
             model:
@@ -694,7 +694,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: 'iOS bootstrap {{ $labels.event }}: {{ printf "%.0f" $values.A.Value }} сигналов за 5 минут по {{ $labels.protocol }}'
+          summary: 'iOS bootstrap {{ $labels.event }}: {{ printf "%.0f" $values.A.Value }} сигналов за 5 минут'
         data:
           - refId: A
             relativeTimeRange: { from: 300, to: 0 }
@@ -703,7 +703,7 @@ groups:
               refId: A
               instant: true
               expr: >
-                sum by (protocol, event)
+                sum by (event)
                 (rusaifin_netdiag_bootstrap_events_window{
                   server="fintech.rusaifin.ru"
                 })
@@ -715,6 +715,128 @@ groups:
               expression: A
               conditions:
                 - evaluator: { type: gt, params: [0] }
+
+  - orgId: 1
+    name: russ360-external-dependencies
+    folder: Russ360
+    interval: 1m
+    rules:
+      - uid: russ360-smtp-tls-down
+        title: 'SMTP TLS недоступен'
+        condition: C
+        for: 2m
+        noDataState: Alerting
+        execErrState: Alerting
+        labels:
+          severity: critical
+          service: smtp
+          env: prod
+        annotations:
+          summary: '{{ $labels.instance }}: не проходит TCP/TLS handshake или проверка сертификата; отправка почты может не работать.'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: 'probe_success{job="blackbox-smtp-tls"}'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      - uid: russ360-onec-transport-down
+        title: '1С недоступна через VPN/TCP'
+        condition: C
+        for: 5m
+        noDataState: Alerting
+        execErrState: Alerting
+        labels:
+          severity: warning
+          service: onec
+          env: prod
+        annotations:
+          summary: '{{ $labels.onec_base }} ({{ $labels.instance }}): TCP:80 недоступен 5 минут. Проверить OpenVPN-маршрут и HTTP-службу 1С; бизнес-авторизация этой пробой не проверяется.'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: 'probe_success{job="blackbox-onec-tcp"}'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      - uid: russ360-fintech-netdiag-missing
+        title: 'Frontend netdiag beacon отсутствует в production HTML'
+        condition: C
+        for: 5m
+        noDataState: Alerting
+        execErrState: Alerting
+        labels:
+          severity: warning
+          service: fintech-netdiag
+          env: prod
+        annotations:
+          summary: '{{ $labels.instance }}: HTML не содержит pre-Nuxt beacon marker; клиентские iOS bootstrap-сбои останутся невидимыми.'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: 'probe_success{job="blackbox-fintech-netdiag"}'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      - uid: russ360-host-rebooted
+        title: 'Production host перезагрузился'
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+          service: host
+          env: prod
+          notify_recovery: 'false'
+        annotations:
+          summary: 'Хост загрузился менее 15 минут назад (uptime {{ printf "%.0f" $values.A.Value }} секунд). Проверить причину reboot и состояние очередей/контейнеров.'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              instant: true
+              expr: 'time() - node_boot_time_seconds'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [900] }
 
   # Бэкапы. Повод: бэкап fintech (47G боевых данных) падал каждую ночь с
   # февраля по июль 2026 — Hestia требует свободного места вдвое больше

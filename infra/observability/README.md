@@ -151,7 +151,7 @@ infra/observability/
 не собирает общий трафик shared-host.
 
 - **correlation-id (trace-id) сквозь сервисы** — пробросить один request-id заголовком (`X-Request-Id`) через rusaifin→rusaicore→rusaiauth→rusaisklad, писать его в каждую лог-строку (Monolog processor) и отдавать клиенту. Тогда по одному id виден полный путь распределённого запроса в Loki (`{...} |= "<id>"`). Стоимость: middleware + Monolog-processor в каждом из 4 сервисов + проброс в gateway-клиентах (`CoreApiClient` и аналоги). Высокая отдача для дебага распределённых багов; делать отдельным заходом, не точечно.
-- **blackbox-exporter** — внешняя проверка доступности (TLS-срок, редиректы, реальный ответ) для Grafana/SSO/обоих фронтов; ловит то, что внутренний scrape не видит (упал nginx/протух сертификат).
+- **blackbox-exporter** — внешняя проверка доступности (TLS-срок, редиректы, реальный ответ) для Grafana/SSO/обоих фронтов, SMTP TLS, TCP-маршрута к двум базам 1С и наличия netdiag beacon в production HTML; ловит то, что внутренний scrape не видит.
 
 ## Whitelist принципы (важно)
 

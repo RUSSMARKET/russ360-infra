@@ -129,3 +129,59 @@ scrape_configs:
         target_label: instance
       - target_label: __address__
         replacement: blackbox:9115
+
+  # SMTP is implicit TLS on :465. This validates TCP reachability, SNI,
+  # certificate trust/expiry and the TLS handshake without sending mail.
+  - job_name: blackbox-smtp-tls
+    metrics_path: /probe
+    params:
+      module: [smtp_tls]
+    static_configs:
+      - targets:
+          - mail.rusaifin.ru:465
+        labels: { service: smtp, env: prod }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115
+
+  # The 1C HTTP services accept only authenticated POST requests. A synthetic
+  # business request could mutate data, so monitoring deliberately checks the
+  # VPN route and TCP listener only. Application errors remain in GlitchTip.
+  - job_name: blackbox-onec-tcp
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets: ['192.168.88.249:80']
+        labels: { service: onec, env: prod, onec_base: rm_buh }
+      - targets: ['192.168.88.250:80']
+        labels: { service: onec, env: prod, onec_base: RK_buh }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115
+
+  # Detect a deployment that accidentally drops the pre-Nuxt iOS failure
+  # beacon. This is separate from the ordinary shell probe so the verdict is
+  # explicit and does not claim that the whole site is down.
+  - job_name: blackbox-fintech-netdiag
+    metrics_path: /probe
+    params:
+      module: [http_fintech_netdiag]
+    static_configs:
+      - targets: ['https://fintech.rusaifin.ru/']
+        labels: { service: fintech-netdiag, env: prod }
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115

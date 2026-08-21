@@ -651,7 +651,7 @@ async def handle_alert(alert):
     # flaps/noise therefore cannot produce orphaned "recovered" messages.
     if status == "resolved":
         was_notified = _finish_alert(alert)
-        if was_notified:
+        if was_notified and labels.get("notify_recovery", "true").lower() != "false":
             await _post_resolved(alert)
         return
     # 3. One message per lifecycle; only sparse reminders for a long incident.

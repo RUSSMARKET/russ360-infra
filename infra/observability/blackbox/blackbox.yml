@@ -26,3 +26,31 @@ modules:
         - "__nuxt"
       tls_config:
         insecure_skip_verify: false
+  http_fintech_netdiag:
+    prober: http
+    timeout: 10s
+    http:
+      method: GET
+      follow_redirects: true
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+      fail_if_body_not_matches_regexp:
+        - "rusaifin_bootstrap_netdiag_v1"
+      tls_config:
+        insecure_skip_verify: false
+  tcp_connect:
+    prober: tcp
+    timeout: 10s
+    tcp:
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+  smtp_tls:
+    prober: tcp
+    timeout: 10s
+    tcp:
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+      tls: true
+      tls_config:
+        server_name: mail.rusaifin.ru
+        insecure_skip_verify: false

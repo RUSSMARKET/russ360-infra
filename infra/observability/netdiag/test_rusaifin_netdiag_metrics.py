@@ -84,6 +84,18 @@ class MetricsTest(unittest.TestCase):
         self.assertIn('event="timeout"} 1', output)
         self.assertNotIn('event="arbitrary"', output)
 
+    def test_emits_zero_bootstrap_series_when_there_are_no_failures(self):
+        output = MODULE.render_metrics([], now=1_001, window_seconds=300, parse_errors=0)
+
+        self.assertIn(
+            'rusaifin_netdiag_bootstrap_events_window{server="fintech.rusaifin.ru",event="resource-error"} 0',
+            output,
+        )
+        self.assertIn(
+            'rusaifin_netdiag_bootstrap_events_window{server="fintech.rusaifin.ru",event="timeout"} 0',
+            output,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

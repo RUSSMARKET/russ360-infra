@@ -49,7 +49,15 @@ def render_metrics(records: list[dict], now: float, window_seconds: int, parse_e
     request_counts: Counter[tuple[str, str, str]] = Counter()
     incomplete_counts: Counter[tuple[str, str, str]] = Counter()
     client_abort_counts: Counter[tuple[str, str, str]] = Counter()
-    bootstrap_event_counts: Counter[tuple[str, str, str]] = Counter()
+    # Emit stable zero-valued series as well. An empty Prometheus result used to
+    # be ambiguous: it could mean either "no client failures" or "the beacon is
+    # not deployed". Deployment presence is checked separately by blackbox.
+    bootstrap_event_counts: Counter[tuple[str, str]] = Counter(
+        {
+            ("fintech.rusaifin.ru", event): 0
+            for event in KNOWN_BOOTSTRAP_EVENTS
+        }
+    )
     last_incomplete: dict[tuple[str, str, str], float] = {}
 
     for record in records:
@@ -92,7 +100,7 @@ def render_metrics(records: list[dict], now: float, window_seconds: int, parse_e
             and status == 204
             and is_ios_webkit
         ):
-            bootstrap_event_counts[(server, protocol, event)] += 1
+            bootstrap_event_counts[(server, event)] += 1
 
     lines = [
         "# HELP rusaifin_netdiag_requests_window Requests observed in the rolling diagnostic window.",
@@ -144,10 +152,9 @@ def render_metrics(records: list[dict], now: float, window_seconds: int, parse_e
             "# TYPE rusaifin_netdiag_bootstrap_events_window gauge",
         ]
     )
-    for (server, protocol, event), value in sorted(bootstrap_event_counts.items()):
+    for (server, event), value in sorted(bootstrap_event_counts.items()):
         labels = (
             f'server="{prometheus_escape(server)}",'
-            f'protocol="{prometheus_escape(protocol)}",'
             f'event="{event}"'
         )
         lines.append(f"rusaifin_netdiag_bootstrap_events_window{{{labels}}} {value}")

@@ -83,6 +83,20 @@ class AlertLifecycleTest(unittest.TestCase):
         items = sorted([low, high], key=bot._alert_numeric_value, reverse=True)
         self.assertEqual(items[0]["fingerprint"], "high")
 
+    def test_notify_recovery_false_closes_lifecycle_without_posting_recovery(self):
+        item = alert("host-reboot")
+        item["labels"]["notify_recovery"] = "false"
+
+        self.assertTrue(bot._begin_firing(item))
+        self.assertTrue(bot._mark_alert_notified(item))
+
+        with mock.patch.object(bot, "_post_resolved", new=mock.AsyncMock()) as post:
+            import asyncio
+
+            asyncio.run(bot.handle_alert({**item, "status": "resolved"}))
+            post.assert_not_awaited()
+        self.assertFalse(bot._alert_still_active(item))
+
 
 if __name__ == "__main__":
     unittest.main()
