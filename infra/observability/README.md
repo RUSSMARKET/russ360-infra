@@ -22,9 +22,8 @@ Status: [`/cutover-status/track-a-observability-infra.md`](../../cutover-status/
 Все порты слушают только `127.0.0.1`. Наружу выпускаются через nginx vhost с basic auth (только на prod).
 
 Grafana пока хранит metadata во встроенной SQLite. Для конкурентной работы alert-engine
-включены WAL, 10-секундное ожидание блокировки и bounded query/transaction retries;
-это устраняет краткие `database is locked`, но не отменяет плановую миграцию metadata
-в PostgreSQL.
+включены WAL и bounded query/transaction retries; это устраняет краткие
+`database is locked`, но не отменяет плановую миграцию metadata в PostgreSQL.
 
 ### Группировка контейнеров
 
