@@ -275,6 +275,10 @@ services:
       # Out-of-RU forward proxy for the claude subprocess only (api.anthropic.com is
       # geo-blocked from timeweb). Empty -> AI calls go direct (and will 403 from RU).
       ANTHROPIC_PROXY: ${ANTHROPIC_PROXY:-}
+      # Telegram notification lifecycle: one initial message, then only sparse
+      # reminders for an alert which never recovered.
+      ALERT_REPEAT_CRITICAL_SEC: ${ALERT_REPEAT_CRITICAL_SEC:-21600}
+      ALERT_REPEAT_WARNING_SEC: ${ALERT_REPEAT_WARNING_SEC:-86400}
       TZ: Europe/Moscow
     volumes:
       - /var/lib/russ360-botdata:/data

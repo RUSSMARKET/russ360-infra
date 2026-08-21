@@ -17,6 +17,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import threading
 import time
 import uuid
@@ -65,7 +66,8 @@ SESSION_MAX_MSGS = 25
 # straight to telegram; the bot pre-filters obvious noise, sends the rest to the
 # agent for triage, and posts only a short human-readable verdict with links.
 ALERT_PORT = int(os.environ.get("ALERT_PORT", "8090"))
-ALERT_DEBOUNCE_SEC = int(os.environ.get("ALERT_DEBOUNCE_SEC", "900"))  # 15 min
+ALERT_REPEAT_CRITICAL_SEC = int(os.environ.get("ALERT_REPEAT_CRITICAL_SEC", "21600"))
+ALERT_REPEAT_WARNING_SEC = int(os.environ.get("ALERT_REPEAT_WARNING_SEC", "86400"))
 GRAFANA_BASE = os.environ.get("GRAFANA_PUBLIC_URL", "https://observability.rusaifin.ru").rstrip("/")
 GLITCHTIP_BASE = os.environ.get("GLITCHTIP_PUBLIC_URL", "https://glitchtip.rusaifin.ru").rstrip("/")
 
@@ -366,6 +368,9 @@ def _alert_links(alert):
         dash = (f"{GRAFANA_BASE}/d/russ360-service-debug/service-debug"
                 f"?var-service={service}&var-env={env}")
         links.append(f'<a href="{_esc_url(dash)}">дашборд</a>')
+    generator = alert.get("generatorURL")
+    if generator:
+        links.append(f'<a href="{_esc_url(generator)}">правило/график</a>')
     silence = alert.get("silenceURL")
     if silence:
         links.append(f'<a href="{_esc_url(silence)}">заглушить</a>')
@@ -375,7 +380,10 @@ def _alert_links(alert):
 
 
 def _alert_target(labels):
-    return "/".join(x for x in (labels.get("service", ""), labels.get("env", "")) if x)
+    primary = "/".join(x for x in (labels.get("service", ""), labels.get("env", "")) if x)
+    if primary:
+        return primary
+    return labels.get("instance") or labels.get("server") or labels.get("user") or ""
 
 
 def _record_suppressed(name, service, env, reason, title=None):
@@ -393,27 +401,148 @@ def _record_suppressed(name, service, env, reason, title=None):
     save_state(st)
 
 
-def _debounce(alert):
-    """True if this exact alert+status fired again within the debounce window — skip
-    it so Grafana group re-sends don't re-trigger a triage. Real 1h critical repeats
-    still pass (window is 15 min)."""
+def _alert_key(alert):
+    """Stable notification key.
+
+    Grafana fingerprints every protocol/resource-class series separately, although
+    to a human they are one incident.  Key the lifecycle by the routing dimensions
+    so one webhook group produces one Telegram conversation, not several messages.
+    """
     labels = alert.get("labels", {}) or {}
-    key = alert.get("fingerprint") or json.dumps(labels, sort_keys=True, ensure_ascii=False)
-    key = f"{key}:{alert.get('status', 'firing')}"
+    dimensions = {
+        k: labels.get(k, "")
+        for k in ("alertname", "service", "env", "instance", "server", "user")
+        if labels.get(k)
+    }
+    return json.dumps(dimensions or labels, sort_keys=True, ensure_ascii=False)
+
+
+def _alert_member_key(alert):
+    """Grafana instance inside a human-level incident group."""
+    return alert.get("fingerprint") or json.dumps(
+        alert.get("labels", {}) or {}, sort_keys=True, ensure_ascii=False
+    )
+
+
+def _begin_firing(alert):
+    """Claim a firing notification if it is new or its sparse reminder is due."""
+    key = _alert_key(alert)
     st = load_state()
-    db = st.setdefault("alert_debounce", {})
+    active = st.setdefault("active_alert_notifications", {})
     now = int(time.time())
-    for k in [k for k, v in db.items() if now - v > 6 * 3600]:
-        del db[k]
-    recent = now - db.get(key, 0) < ALERT_DEBOUNCE_SEC
-    db[key] = now
+    for old_key, item in list(active.items()):
+        if now - int(item.get("last_seen_at", 0)) > 7 * 86400:
+            del active[old_key]
+    item = active.setdefault(key, {})
+    members = item.setdefault("members", [])
+    member = _alert_member_key(alert)
+    if member not in members:
+        members.append(member)
+    severity = (alert.get("labels", {}) or {}).get("severity", "")
+    interval = ALERT_REPEAT_CRITICAL_SEC if severity == "critical" else ALERT_REPEAT_WARNING_SEC
+    last_processed = int(item.get("last_processed_at", 0))
+    due = not last_processed or now - last_processed >= interval
+    item["last_seen_at"] = now
+    if due:
+        item["last_processed_at"] = now
+        item["started_at"] = item.get("started_at") or alert.get("startsAt", "")
     save_state(st)
-    return recent
+    return due
+
+
+def _mark_alert_notified(alert):
+    st = load_state()
+    item = st.setdefault("active_alert_notifications", {}).get(_alert_key(alert))
+    if not item or _alert_member_key(alert) not in item.get("members", []):
+        return False
+    item["notified"] = True
+    item["last_notified_at"] = int(time.time())
+    save_state(st)
+    return True
+
+
+def _alert_still_active(alert):
+    item = load_state().get("active_alert_notifications", {}).get(_alert_key(alert))
+    return bool(item and _alert_member_key(alert) in item.get("members", []))
+
+
+def _finish_alert(alert):
+    """Close one Grafana instance; report recovery after the whole group clears."""
+    st = load_state()
+    active = st.setdefault("active_alert_notifications", {})
+    key = _alert_key(alert)
+    item = active.get(key)
+    if not item:
+        save_state(st)
+        return False
+    member = _alert_member_key(alert)
+    members = item.setdefault("members", [])
+    if member not in members:
+        save_state(st)
+        return False
+    members.remove(member)
+    if members:
+        item["last_seen_at"] = int(time.time())
+        save_state(st)
+        return False
+    active.pop(key, None)
+    save_state(st)
+    return bool(item.get("notified"))
+
+
+def _started_text(alert):
+    raw = alert.get("startsAt") or ""
+    if not raw:
+        return ""
+    try:
+        started = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        now = datetime.datetime.now(datetime.timezone.utc)
+        seconds = max(0, int((now - started.astimezone(datetime.timezone.utc)).total_seconds()))
+        if seconds >= 86400:
+            age = f"{seconds / 86400:.1f} сут"
+        elif seconds >= 3600:
+            age = f"{seconds / 3600:.1f} ч"
+        else:
+            age = f"{max(1, seconds // 60)} мин"
+        return f"с {started.astimezone(MSK).strftime('%d.%m %H:%M')} МСК ({age})"
+    except (TypeError, ValueError):
+        return ""
+
+
+def _alert_facts(alert):
+    """Small, truthful context block shared by AI and fallback notifications."""
+    labels = alert.get("labels", {}) or {}
+    target = _alert_target(labels)
+    details = []
+    for key, title in (
+        ("instance", "instance"), ("server", "server"), ("user", "user"),
+        ("route", "route"), ("reason", "reason"), ("protocol", "protocol"),
+        ("resource_class", "resource"),
+    ):
+        value = labels.get(key)
+        if value and value != target:
+            details.append(f"{title}={value}")
+    lines = []
+    if target:
+        lines.append(f"Контур: {esc(target)}")
+    if details:
+        lines.append("Детали: " + esc(", ".join(details)))
+    instances = alert.get("_group_instances") or []
+    if len(instances) > 1:
+        lines.append(f"Серий в одном инциденте: {len(instances)} (показана самая сильная)")
+    started = _started_text(alert)
+    if started:
+        lines.append("Началось: " + esc(started))
+    return lines
 
 
 def _alert_for_agent(alert):
     """Compact view of the alert handed to the agent for triage."""
     labels = alert.get("labels", {}) or {}
+    safe_labels = {
+        k: v for k, v in labels.items()
+        if k not in {"__name__"} and not re.search(r"token|secret|password|key", k, re.I)
+    }
     return {
         "alertname": labels.get("alertname", ""),
         "severity": labels.get("severity", ""),
@@ -423,7 +552,24 @@ def _alert_for_agent(alert):
         "summary": (alert.get("annotations", {}) or {}).get("summary", ""),
         "value": alert.get("valueString", ""),
         "starts_at": alert.get("startsAt", ""),
+        "labels": safe_labels,
+        "annotations": alert.get("annotations", {}) or {},
+        "group_instances": alert.get("_group_instances", []) or [],
     }
+
+
+def _alert_numeric_value(alert):
+    """Largest evaluator value, used only to choose the representative instance."""
+    values = []
+    for raw in re.findall(
+        r"\bvalue=([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)",
+        alert.get("valueString", "") or "",
+    ):
+        try:
+            values.append(float(raw))
+        except ValueError:
+            pass
+    return max(values, default=float("-inf"))
 
 
 def _triage_alert(alert, req_id):
@@ -451,10 +597,13 @@ async def _post_triaged(alert, triage):
     labels = alert.get("labels", {}) or {}
     emoji = "🔴" if labels.get("severity") == "critical" else "🟡"
     title = esc(triage.get("title") or labels.get("alertname", "Алерт"))
-    lines = [f"{emoji} <b>{title}</b>"]
+    lines = [f"{emoji} <b>{title}</b>"] + _alert_facts(alert)
+    raw_summary = ((alert.get("annotations", {}) or {}).get("summary") or "").strip()
+    if raw_summary:
+        lines.append("Сигнал: " + esc(raw_summary))
     summary = (triage.get("summary") or "").strip()
     if summary:
-        lines.append(esc(summary))
+        lines.append("Проверка: " + esc(summary))
     action = (triage.get("action") or "").strip()
     if action:
         lines += ["", "⚡ " + esc(action)]
@@ -467,10 +616,10 @@ async def _post_raw_alert(alert):
     emoji = "🔴" if labels.get("severity") == "critical" else "🟡"
     name = esc(labels.get("alertname", "Алерт"))
     tgt = _alert_target(labels)
-    lines = [f"{emoji} <b>{name}</b>" + (f" ({esc(tgt)})" if tgt else "")]
+    lines = [f"{emoji} <b>{name}</b>"] + _alert_facts(alert)
     summary = (alert.get("annotations", {}) or {}).get("summary", "")
     if summary:
-        lines.append(esc(summary))
+        lines.append("Сигнал: " + esc(summary))
     await _post_alert_message(lines, alert)
 
 
@@ -478,8 +627,11 @@ async def _post_resolved(alert):
     labels = alert.get("labels", {}) or {}
     name = esc(labels.get("alertname", "Алерт"))
     tgt = _alert_target(labels)
-    await send_long(_bot_app.bot, CHAT_ID,
-                    f"✅ <b>Восстановилось:</b> {name}" + (f" ({esc(tgt)})" if tgt else ""))
+    started = _started_text(alert)
+    suffix = f" ({esc(tgt)})" if tgt else ""
+    if started:
+        suffix += f" · было активно {esc(started.rsplit('(', 1)[-1].rstrip(')'))}"
+    await send_long(_bot_app.bot, CHAT_ID, f"✅ <b>Восстановилось:</b> {name}{suffix}")
 
 
 async def handle_alert(alert):
@@ -495,22 +647,28 @@ async def handle_alert(alert):
     if env == "dev":
         _record_suppressed(name, service, env, "dev")
         return
-    # 2. resolves: only critical outages clearing are worth a (cheap) note
+    # 2. Resolve only incidents that were actually shown in Telegram. Warning
+    # flaps/noise therefore cannot produce orphaned "recovered" messages.
     if status == "resolved":
-        if severity == "critical":
+        was_notified = _finish_alert(alert)
+        if was_notified:
             await _post_resolved(alert)
-        else:
-            _record_suppressed(name, service, env, "resolve")
         return
-    # 3. debounce Grafana group re-sends
-    if _debounce(alert):
+    # 3. One message per lifecycle; only sparse reminders for a long incident.
+    if not _begin_firing(alert):
         return
 
     req_id = uuid.uuid4().hex[:16]
     triage = await asyncio.to_thread(_triage_alert, alert, req_id)
 
+    # Triage can take a couple of minutes. Do not post a stale firing notification
+    # if Grafana sent the recovery while the agent was still investigating.
+    if not _alert_still_active(alert):
+        return
+
     if triage is None:  # agent down/disabled — never lose the alert
         await _post_raw_alert(alert)
+        _mark_alert_notified(alert)
         return
     # Safety rail: a critical is never fully silenced even if the agent calls it
     # noise (misjudging a real outage must not swallow it) — it's still posted, just
@@ -521,6 +679,7 @@ async def handle_alert(alert):
                          (triage.get("summary") or "подавлен как шум"))
         return
     await _post_triaged(alert, triage)
+    _mark_alert_notified(alert)
 
 
 class _AlertHandler(BaseHTTPRequestHandler):
@@ -540,7 +699,23 @@ class _AlertHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         alerts = payload.get("alerts") or []
+        group_instances = [
+            {
+                "labels": {
+                    k: v for k, v in (a.get("labels", {}) or {}).items()
+                    if not re.search(r"token|secret|password|key", k, re.I)
+                },
+                "summary": (a.get("annotations", {}) or {}).get("summary", ""),
+                "value": a.get("valueString", ""),
+                "status": a.get("status", "firing"),
+            }
+            for a in alerts
+        ]
+        # Instances in one Grafana group share a human-level lifecycle. Let the
+        # strongest one lead triage and include the rest as context.
+        alerts.sort(key=_alert_numeric_value, reverse=True)
         for a in alerts:
+            a["_group_instances"] = group_instances
             if _bot_loop is not None:
                 asyncio.run_coroutine_threadsafe(handle_alert(a), _bot_loop)
         self.send_response(200)

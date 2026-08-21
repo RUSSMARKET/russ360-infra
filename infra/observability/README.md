@@ -130,10 +130,11 @@ infra/observability/
 - **Метрики приложений** (Prometheus namespace `russ360_`): `http_requests_total`, `http_request_duration_seconds`, `exceptions_total` (RED по всем сервисам) + бизнес: `active_sessions` (rusaifin), `active_tokens` (rusaiauth), `core_api_request_duration_seconds` / `core_gateway_errors_total` (sklad gateway).
   - ⚠ **rusaifin: env-метка ненадёжна для counter/histogram.** APCu расшарен на весь php8.3-fpm master (один master на версию PHP, юзер fintech), namespace `russ360` общий → `http_requests_total`/latency/exceptions у dev и prod **совпадают** (gauge `active_sessions` корректен — считается из своей БД). Отделить: `PROMETHEUS_STORAGE=redis` с разным DB-index по env. Не сделано.
 - **Sentry SDK** в сервисах → DSN из GlitchTip → exception tracking (бэкенды `sentry/sentry-laravel`, фронты `@sentry/vue`).
-- **Alerting** (provisioned): `grafana/provisioning/alerting/{rules,contactpoints,policies}.yaml`. Калибровка 2026-06-11 по 14д baseline:
-  - метрики: `target-down (up==0)`, `5xx>1%`, `p95>2.5s` (окно 15m, гейт ≥3 req/min, SMS-роуты исключены), `exceptions>5/min`, `disk>80/95%`.
-  - логи (Loki datasource, группа `russ360-logs`): `scheduler-fail` (Scheduled command + fail, >3 за 30m) и `critical-level` (>0 за 5m). Ловят то, что числовые метрики не видят.
-  - контакт-поинт Telegram (`GF_TELEGRAM_BOT_TOKEN`, chat id в `contactpoints.yaml`).
+- **Alerting** (provisioned): `grafana/provisioning/alerting/{rules,contactpoints,policies}.yaml`.
+  - метрики: `target-down (up==0)`, `5xx>1%`, `p95>4s` (окно 30m, гейт ≥3 req/min, SMS-роуты исключены), `exceptions>5/min`, `disk>80/95%`.
+  - логи (Loki datasource, группа `russ360-logs`): `scheduler-fail` (>0 за 90m, чтобы часовая хроническая ошибка оставалась одним инцидентом) и `critical-level` (>0 за 5m). Ловят то, что числовые метрики не видят.
+  - transport-диагностика отправляет warning только для устойчивого всплеска: incomplete assets >5 и nginx 499 >10 не менее 5m; формулировки не выдают transport-сигнал за подтверждённый пользовательский сбой.
+  - Telegram получает triage-сообщение один раз на жизненный цикл алерта, затем reminder через 6ч для critical / 24ч для warning. Recovery отправляется только если firing действительно был показан. Сырые состояния остаются в Grafana.
 - **Логи: единая схема меток.** promtail размечает все 4 backend меткой `{service,env}` (docker-сервисы — relabel из `compose_project`, rusaifin — из laravel job). LogQL-селектор `{service="...",env="..."}` работает одинаково для всех.
 - **Dashboards:** `services-overview.json` (весь стек разом) + `service-debug.json` (uid `russ360-service-debug`: один сервис под лупой — dropdown service/env, RED, разбивка по роутам, логи с переходом в Explore).
 - **CLI:** `scripts/russ obs {targets|query|logs|errors|alerts}` — read-only доступ к стеку из терминала (Prometheus/Loki/GlitchTip/Grafana).

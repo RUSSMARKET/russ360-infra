@@ -8,8 +8,10 @@ policies:
     receiver: tgbot-triage
     group_by: ['alertname', 'service', 'env']
     group_wait: 30s
-    group_interval: 5m
-    repeat_interval: 4h
+    group_interval: 10m
+    # Telegram is an attention channel, not a live dashboard.  A warning is sent
+    # once per day while it remains active; the dashboard keeps the full state.
+    repeat_interval: 24h
     routes:
       # Dead-man switch: bypass the bot, deliver directly to telegram.
       - receiver: telegram-russ360
@@ -17,9 +19,10 @@ policies:
           - deadman = true
         group_wait: 10s
         repeat_interval: 1h
-      # Critical alerts still go through triage, just with a tighter repeat interval.
+      # Critical alerts still go through triage, with a reminder during a long
+      # incident but without the old hourly flood.
       - receiver: tgbot-triage
         matchers:
           - severity = critical
         group_wait: 10s
-        repeat_interval: 1h
+        repeat_interval: 6h
